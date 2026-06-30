@@ -1,0 +1,199 @@
+<!DOCTYPE html>
+
+<html class="light" lang="en"><head>
+<meta charset="utf-8"/>
+<meta content="width=device-width, initial-scale=1.0" name="viewport"/>
+<title>MediLens AI - Loading</title>
+<!-- Material Symbols -->
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<!-- Google Fonts -->
+<link href="https://fonts.googleapis.com" rel="preconnect"/>
+<link crossorigin="" href="https://fonts.gstatic.com" rel="preconnect"/>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<!-- Tailwind CSS -->
+<script src="https://cdn.tailwindcss.com?plugins=forms,container-queries"></script>
+<!-- Tailwind Configuration -->
+<script id="tailwind-config">
+      tailwind.config = {
+        darkMode: "class",
+        theme: {
+          extend: {
+            "colors": {
+                    "on-primary-fixed": "#002113",
+                    "on-primary-container": "#00422b",
+                    "primary-container": "#10b981",
+                    "surface-bright": "#f8f9ff",
+                    "on-tertiary-fixed": "#2a1700",
+                    "surface-container-highest": "#d3e4fe",
+                    "on-secondary-fixed": "#00174b",
+                    "tertiary-container": "#e29100",
+                    "secondary": "#0051d5",
+                    "inverse-on-surface": "#eaf1ff",
+                    "on-surface-variant": "#3c4a42",
+                    "on-primary-fixed-variant": "#005236",
+                    "inverse-surface": "#213145",
+                    "on-error": "#ffffff",
+                    "on-tertiary-container": "#523200",
+                    "surface-container-low": "#eff4ff",
+                    "surface": "#f8f9ff",
+                    "tertiary-fixed": "#ffddb8",
+                    "primary": "#006c49",
+                    "secondary-fixed": "#dbe1ff",
+                    "background": "#f8f9ff",
+                    "secondary-container": "#316bf3",
+                    "outline-variant": "#bbcabf",
+                    "on-secondary-container": "#fefcff",
+                    "on-secondary-fixed-variant": "#003ea8",
+                    "outline": "#6c7a71",
+                    "tertiary": "#855300",
+                    "on-background": "#0b1c30",
+                    "surface-tint": "#006c49",
+                    "on-tertiary": "#ffffff",
+                    "error": "#ba1a1a",
+                    "surface-container-lowest": "#ffffff",
+                    "on-tertiary-fixed-variant": "#653e00",
+                    "on-secondary": "#ffffff",
+                    "secondary-fixed-dim": "#b4c5ff",
+                    "primary-fixed": "#6ffbbe",
+                    "inverse-primary": "#4edea3",
+                    "primary-fixed-dim": "#4edea3",
+                    "surface-container-high": "#dce9ff",
+                    "on-surface": "#0b1c30",
+                    "error-container": "#ffdad6",
+                    "surface-variant": "#d3e4fe",
+                    "surface-dim": "#cbdbf5",
+                    "tertiary-fixed-dim": "#ffb95f",
+                    "on-primary": "#ffffff",
+                    "on-error-container": "#93000a",
+                    "surface-container": "#e5eeff"
+            },
+            "borderRadius": {
+                    "DEFAULT": "0.25rem",
+                    "lg": "0.5rem",
+                    "xl": "0.75rem",
+                    "full": "9999px"
+            },
+            "spacing": {
+                    "sm": "12px",
+                    "lg": "24px",
+                    "container-padding": "20px",
+                    "md": "16px",
+                    "xl": "32px",
+                    "base": "8px",
+                    "gutter": "16px",
+                    "xs": "4px"
+            },
+            "fontFamily": {
+                    "label-sm": ["Inter"],
+                    "headline-lg": ["Inter"],
+                    "display-lg": ["Inter"],
+                    "title-md": ["Inter"],
+                    "headline-lg-mobile": ["Inter"],
+                    "body-lg": ["Inter"],
+                    "body-md": ["Inter"]
+            },
+            "fontSize": {
+                    "label-sm": ["12px", {"lineHeight": "16px", "letterSpacing": "0.05em", "fontWeight": "500"}],
+                    "headline-lg": ["32px", {"lineHeight": "40px", "letterSpacing": "-0.01em", "fontWeight": "600"}],
+                    "display-lg": ["48px", {"lineHeight": "56px", "letterSpacing": "-0.02em", "fontWeight": "700"}],
+                    "title-md": ["20px", {"lineHeight": "28px", "fontWeight": "600"}],
+                    "headline-lg-mobile": ["28px", {"lineHeight": "36px", "fontWeight": "600"}],
+                    "body-lg": ["16px", {"lineHeight": "24px", "fontWeight": "400"}],
+                    "body-md": ["14px", {"lineHeight": "20px", "fontWeight": "400"}]
+            }
+          }
+        }
+      }
+    </script>
+<style>
+        .shimmer {
+            background: linear-gradient(90deg, #F1F5F9 0%, #F8FAFC 50%, #F1F5F9 100%);
+            background-size: 200% 100%;
+            animation: shimmer-animation 2s infinite linear;
+            -webkit-background-clip: text;
+            background-clip: text;
+            -webkit-text-fill-color: transparent;
+        }
+        @keyframes shimmer-animation {
+            0% { background-position: -200% 0; }
+            100% { background-position: 200% 0; }
+        }
+    </style>
+<style>
+    body {
+      min-height: max(884px, 100dvh);
+    }
+  </style>
+</head>
+<body class="bg-gradient-to-b from-white to-[#F8FAFC] h-screen w-screen overflow-hidden flex flex-col items-center justify-center relative font-body-lg text-on-surface">
+<!-- Main Content Canvas -->
+<main class="flex-1 w-full max-w-[1200px] mx-auto flex flex-col items-center justify-center px-container-padding relative z-10 h-full">
+<!-- Logo / Animation Container -->
+<div class="relative w-48 h-48 md:w-64 md:h-64 mb-lg flex items-center justify-center">
+<!-- Glassmorphism subtle backdrop for the animation -->
+<div class="absolute inset-0 bg-white/40 backdrop-blur-xl rounded-full border border-white/50 shadow-[0_8px_32px_0_rgba(16,185,129,0.1)]"></div>
+<!-- 3D Animation Injection -->
+<div class="relative w-3/4 h-3/4 z-10">
+<!-- STITCH_SVG_START:ANIMATION_3 class="absolute inset-0 w-full h-full" --><div class="absolute inset-0 w-full h-full" id="animated-svg-ANIMATION_3" style="display:block;"><svg fill="none" height="400" viewbox="0 0 400 400" width="400" xmlns="http://www.w3.org/2000/svg">
+<!-- Capsule Body -->
+<g id="capsule">
+<rect fill="#10B981" height="200" rx="50" width="100" x="150" y="100">
+<animate attributename="opacity" begin="2s" dur="2s" fill="freeze" values="1;0"></animate>
+<animatetransform attributename="transform" dur="1s" fill="freeze" from="0 200 200" to="90 200 200" type="rotate"></animatetransform>
+</rect>
+<rect fill="#2563EB" height="100" opacity="0.8" rx="50" width="100" x="150" y="100">
+<animate attributename="opacity" begin="2s" dur="2s" fill="freeze" values="0.8;0"></animate>
+<animatetransform attributename="transform" dur="1s" fill="freeze" from="0 200 200" to="90 200 200" type="rotate"></animatetransform>
+</rect>
+</g>
+<!-- AI Brain / Circuitry (Simplified representation) -->
+<g id="brain" opacity="0">
+<path d="M200 120C160 120 130 150 130 190C130 230 160 260 200 260C240 260 270 230 270 190C270 150 240 120 200 120Z" stroke="#10B981" stroke-width="4"></path>
+<path d="M170 190H230M200 160V220M150 160L180 180M250 160L220 180M150 220L180 200M250 220L220 200" stroke="#10B981" stroke-linecap="round" stroke-width="2"></path>
+<circle cx="200" cy="190" fill="#10B981" r="10">
+<animate attributename="r" dur="1.5s" repeatcount="indefinite" values="8;12;8"></animate>
+</circle>
+<animate attributename="opacity" begin="3s" dur="1s" fill="freeze" values="0;1"></animate>
+</g>
+</svg></div><!-- STITCH_SVG_END:ANIMATION_3 -->
+</div>
+</div>
+<!-- Typography Cluster -->
+<div class="text-center space-y-sm">
+<h1 class="font-display-lg text-display-lg text-on-surface tracking-tight">
+                MediLens AI
+            </h1>
+<p class="font-body-lg text-body-lg text-on-surface-variant max-w-[280px] mx-auto opacity-80">
+                Smart Medicine Assistant
+            </p>
+</div>
+<!-- Loading Indicator -->
+<div class="absolute bottom-xl left-1/2 -translate-x-1/2 flex flex-col items-center gap-2">
+<!-- Shimmering Text -->
+<span class="font-label-sm text-label-sm tracking-[0.2em] uppercase text-outline">
+                 Loading Experience
+             </span>
+<!-- Glassmorphism Progress Pill -->
+<div class="w-32 h-1 bg-surface-container-highest rounded-full overflow-hidden border border-white/20">
+<div class="h-full bg-primary-container rounded-full w-1/3 animate-[pulse_1.5s_ease-in-out_infinite] shadow-[0_0_10px_rgba(16,185,129,0.5)]"></div>
+</div>
+</div>
+<!-- Background Ambient Glow -->
+<div class="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[120vw] h-[120vw] max-w-[800px] max-h-[800px] bg-primary/5 rounded-full blur-3xl -z-10 pointer-events-none opacity-50"></div>
+</main>
+<!-- Script for subtle load-in animation -->
+<script>
+        document.addEventListener('DOMContentLoaded', () => {
+            const mainContent = document.querySelector('main');
+            mainContent.style.opacity = '0';
+            mainContent.style.transform = 'translateY(10px)';
+            mainContent.style.transition = 'opacity 0.8s ease-out, transform 0.8s ease-out';
+            
+            setTimeout(() => {
+                mainContent.style.opacity = '1';
+                mainContent.style.transform = 'translateY(0)';
+            }, 100);
+        });
+    </script>
+</body></html>

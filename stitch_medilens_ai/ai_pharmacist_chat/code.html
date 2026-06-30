@@ -1,0 +1,259 @@
+<!DOCTYPE html>
+
+<html class="h-full" lang="en"><head>
+<meta charset="utf-8"/>
+<meta content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" name="viewport"/>
+<title>MediLens AI Chat</title>
+<script src="https://cdn.tailwindcss.com?plugins=forms,container-queries"></script>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<script id="tailwind-config">
+        tailwind.config = {
+            darkMode: "class",
+            theme: {
+                extend: {
+                    "colors": {
+                        "primary-container": "#10b981",
+                        "error": "#ba1a1a",
+                        "surface-container": "#e5eeff",
+                        "on-primary-fixed-variant": "#005236",
+                        "error-container": "#ffdad6",
+                        "surface-variant": "#d3e4fe",
+                        "inverse-primary": "#4edea3",
+                        "secondary": "#0051d5",
+                        "surface-container-low": "#eff4ff",
+                        "surface-container-high": "#dce9ff",
+                        "on-primary-container": "#00422b",
+                        "surface-dim": "#cbdbf5",
+                        "on-tertiary-fixed-variant": "#653e00",
+                        "on-error-container": "#93000a",
+                        "tertiary-fixed": "#ffddb8",
+                        "background": "#f8f9ff",
+                        "surface-container-highest": "#d3e4fe",
+                        "surface": "#f8f9ff",
+                        "on-primary-fixed": "#002113",
+                        "inverse-on-surface": "#eaf1ff",
+                        "tertiary-fixed-dim": "#ffb95f",
+                        "on-secondary": "#ffffff",
+                        "surface-tint": "#006c49",
+                        "on-secondary-fixed": "#00174b",
+                        "on-tertiary-container": "#523200",
+                        "on-background": "#0b1c30",
+                        "on-secondary-fixed-variant": "#003ea8",
+                        "outline": "#6c7a71",
+                        "tertiary": "#855300",
+                        "on-surface-variant": "#3c4a42",
+                        "on-error": "#ffffff",
+                        "on-surface": "#0b1c30",
+                        "inverse-surface": "#213145",
+                        "tertiary-container": "#e29100",
+                        "primary-fixed": "#6ffbbe",
+                        "surface-container-lowest": "#ffffff",
+                        "secondary-fixed-dim": "#b4c5ff",
+                        "secondary-fixed": "#dbe1ff",
+                        "outline-variant": "#bbcabf",
+                        "surface-bright": "#f8f9ff",
+                        "on-secondary-container": "#fefcff",
+                        "on-tertiary-fixed": "#2a1700",
+                        "primary-fixed-dim": "#4edea3",
+                        "secondary-container": "#316bf3",
+                        "on-primary": "#ffffff",
+                        "on-tertiary": "#ffffff",
+                        "primary": "#006c49"
+                    },
+                    "borderRadius": {
+                        "DEFAULT": "0.25rem",
+                        "lg": "0.5rem",
+                        "xl": "0.75rem",
+                        "full": "9999px",
+                        "2xl": "1rem",
+                        "3xl": "1.5rem"
+                    },
+                    "spacing": {
+                        "sm": "12px",
+                        "xl": "32px",
+                        "container-padding": "20px",
+                        "gutter": "16px",
+                        "base": "8px",
+                        "md": "16px",
+                        "xs": "4px",
+                        "lg": "24px"
+                    },
+                    "fontFamily": {
+                        "display-lg": ["Inter"],
+                        "label-sm": ["Inter"],
+                        "headline-lg": ["Inter"],
+                        "body-md": ["Inter"],
+                        "headline-lg-mobile": ["Inter"],
+                        "body-lg": ["Inter"],
+                        "title-md": ["Inter"]
+                    },
+                    "fontSize": {
+                        "display-lg": ["48px", { "lineHeight": "56px", "letterSpacing": "-0.02em", "fontWeight": "700" }],
+                        "label-sm": ["12px", { "lineHeight": "16px", "letterSpacing": "0.05em", "fontWeight": "500" }],
+                        "headline-lg": ["32px", { "lineHeight": "40px", "letterSpacing": "-0.01em", "fontWeight": "600" }],
+                        "body-md": ["14px", { "lineHeight": "20px", "fontWeight": "400" }],
+                        "headline-lg-mobile": ["28px", { "lineHeight": "36px", "fontWeight": "600" }],
+                        "body-lg": ["16px", { "lineHeight": "24px", "fontWeight": "400" }],
+                        "title-md": ["20px", { "lineHeight": "28px", "fontWeight": "600" }]
+                    }
+                }
+            }
+        }
+    </script>
+<style>
+        body {
+            background-color: theme('colors.background');
+            -webkit-tap-highlight-color: transparent;
+        }
+        
+        .glass-panel {
+            background: rgba(255, 255, 255, 0.7);
+            backdrop-filter: blur(20px);
+            -webkit-backdrop-filter: blur(20px);
+            border-top: 1px solid rgba(255, 255, 255, 0.5);
+            border-left: 1px solid rgba(255, 255, 255, 0.5);
+        }
+
+        .typing-indicator span {
+            display: inline-block;
+            width: 6px;
+            height: 6px;
+            background-color: theme('colors.primary');
+            border-radius: 50%;
+            margin: 0 2px;
+            animation: bounce 1.4s infinite ease-in-out both;
+        }
+
+        .typing-indicator span:nth-child(1) { animation-delay: -0.32s; }
+        .typing-indicator span:nth-child(2) { animation-delay: -0.16s; }
+
+        @keyframes bounce {
+            0%, 80%, 100% { transform: scale(0); opacity: 0.4; }
+            40% { transform: scale(1); opacity: 1; }
+        }
+
+        /* Hide scrollbar for clean chat look */
+        .no-scrollbar::-webkit-scrollbar {
+            display: none;
+        }
+        .no-scrollbar {
+            -ms-overflow-style: none;  /* IE and Edge */
+            scrollbar-width: none;  /* Firefox */
+        }
+    </style>
+<style>
+    body {
+      min-height: max(884px, 100dvh);
+    }
+  </style>
+  </head>
+<body class="h-full flex flex-col font-body-md text-on-background relative overflow-hidden">
+<!-- TopAppBar Shell (Semantic Mapping: AI/Chat is active, but this is a focus view so we might suppress bottom nav, keeping top for identity) -->
+<header class="flex justify-between items-center px-container-padding h-16 w-full sticky top-0 z-40 bg-surface/70 backdrop-blur-xl border-b border-white/20 shadow-sm transition-all shrink-0">
+<div class="flex items-center gap-sm">
+<button class="p-2 -ml-2 rounded-full hover:bg-surface-variant transition-colors text-on-surface-variant">
+<span class="material-symbols-outlined">arrow_back</span>
+</button>
+<div class="flex flex-col">
+<h1 class="font-title-md text-title-md text-primary tracking-tight">MediLens AI</h1>
+<span class="font-label-sm text-label-sm text-primary/70 flex items-center gap-1">
+<span class="w-2 h-2 rounded-full bg-primary-container animate-pulse"></span> Online
+                </span>
+</div>
+</div>
+<button class="w-10 h-10 rounded-full bg-surface-variant flex items-center justify-center overflow-hidden border border-white/50 shadow-sm">
+<img class="w-full h-full object-cover" data-alt="A clean, minimalist abstract avatar representing a digital assistant. Light mode aesthetic with soft whites, grays, and a hint of emerald green. High quality, professional look." src="https://lh3.googleusercontent.com/aida-public/AB6AXuA67j9XNJNFVG-Gd4-2uwi_psVRgQh_pHK5wdlVtUVN5mEL1uywrbTRBzJ_nRFgT3lsWBlemfM8YC_DuGQWYn_z01esYi6yMafoInlrqyB33pYBL6asl2fYmwSQxvGTTz3TKv2Z9uyKovwPO59z25WlLHpTaWSJGekuIAjspClussuvXe1icKJR-6oQ30GtmC6Fr9NTh0ZGQmvRLdBDZ_lHp6Qq8bNWcelm93UKoZOM9XufBLDbwFswiSKpQ65IknwJOJLp5-fFPQ"/>
+</button>
+</header>
+<!-- Main Chat Canvas -->
+<main class="flex-1 overflow-y-auto no-scrollbar flex flex-col pb-32">
+<div class="w-full max-w-[800px] mx-auto px-container-padding py-lg flex flex-col gap-lg">
+<!-- Welcome Area -->
+<div class="text-center py-xl">
+<div class="w-16 h-16 mx-auto bg-primary-container/20 rounded-2xl flex items-center justify-center mb-md shadow-sm border border-white/50">
+<span class="material-symbols-outlined text-4xl text-primary" style="font-variation-settings: 'FILL' 1;">smart_toy</span>
+</div>
+<h2 class="font-headline-lg-mobile text-headline-lg-mobile text-on-background mb-xs">Hello 👋 Ask about medicines</h2>
+<p class="font-body-lg text-body-lg text-on-surface-variant">I can help analyze prescriptions, check interactions, and explain dosages.</p>
+</div>
+<!-- Chat History -->
+<div class="flex flex-col gap-md">
+<!-- User Message -->
+<div class="flex justify-end">
+<div class="max-w-[85%] bg-primary text-on-primary rounded-3xl rounded-tr-sm px-md py-sm shadow-md">
+<p class="font-body-lg text-body-lg">Can I take this medicine after food?</p>
+</div>
+</div>
+<!-- AI Response -->
+<div class="flex justify-start gap-sm">
+<div class="w-8 h-8 rounded-full bg-primary-container/20 flex items-center justify-center shrink-0 border border-white/50 mt-1">
+<span class="material-symbols-outlined text-sm text-primary" style="font-variation-settings: 'FILL' 1;">smart_toy</span>
+</div>
+<div class="max-w-[85%] glass-panel bg-white/80 rounded-3xl rounded-tl-sm px-md py-md shadow-sm">
+<div class="font-body-lg text-body-lg text-on-background space-y-md">
+<p>Based on general medical guidelines for common medications (like Ibuprofen or certain antibiotics), it is often recommended to take them <strong>after food</strong> or with a meal.</p>
+<div class="bg-surface-container-low rounded-xl p-sm border border-surface-variant/50">
+<p class="font-label-sm text-label-sm text-on-surface-variant uppercase tracking-wider mb-xs flex items-center gap-1">
+<span class="material-symbols-outlined text-[14px]">info</span> Why take with food?
+                                </p>
+<ul class="list-disc pl-5 space-y-1 text-on-background">
+<li>Reduces gastrointestinal irritation.</li>
+<li>Can improve absorption for specific drug types.</li>
+</ul>
+</div>
+<p class="text-sm text-on-surface-variant">However, some medications <em>must</em> be taken on an empty stomach. Could you please provide the name of the specific medicine or upload a photo of the label for accurate advice?</p>
+</div>
+</div>
+</div>
+<!-- AI Typing Indicator -->
+<div class="flex justify-start gap-sm opacity-70">
+<div class="w-8 h-8 rounded-full bg-primary-container/20 flex items-center justify-center shrink-0 border border-white/50">
+<span class="material-symbols-outlined text-sm text-primary" style="font-variation-settings: 'FILL' 1;">smart_toy</span>
+</div>
+<div class="glass-panel bg-white/60 rounded-3xl rounded-tl-sm px-md py-sm shadow-sm flex items-center">
+<div class="typing-indicator flex items-center h-4">
+<span></span>
+<span></span>
+<span></span>
+</div>
+</div>
+</div>
+</div>
+</div>
+</main>
+<!-- Bottom Input Area (Fixed) -->
+<div class="fixed bottom-0 left-0 w-full bg-gradient-to-t from-background via-background/95 to-transparent pt-xl pb-6 px-container-padding z-50">
+<div class="w-full max-w-[800px] mx-auto flex flex-col gap-sm">
+<!-- Suggested Actions (Chips) -->
+<div class="flex gap-sm overflow-x-auto no-scrollbar pb-xs">
+<button class="shrink-0 px-md py-2 rounded-full glass-panel bg-white/70 border border-white text-primary text-sm font-medium hover:bg-white transition-colors shadow-sm whitespace-nowrap">
+                    Identify Pill
+                </button>
+<button class="shrink-0 px-md py-2 rounded-full glass-panel bg-white/70 border border-white text-primary text-sm font-medium hover:bg-white transition-colors shadow-sm whitespace-nowrap">
+                    Check Interactions
+                </button>
+<button class="shrink-0 px-md py-2 rounded-full glass-panel bg-white/70 border border-white text-primary text-sm font-medium hover:bg-white transition-colors shadow-sm whitespace-nowrap">
+                    Side Effects
+                </button>
+</div>
+<!-- Input Box -->
+<div class="relative glass-panel bg-white/90 rounded-[24px] p-2 flex items-center shadow-lg shadow-primary/5 border border-white/80">
+<button class="w-10 h-10 rounded-full hover:bg-surface-variant flex items-center justify-center text-on-surface-variant transition-colors shrink-0">
+<span class="material-symbols-outlined">add_photo_alternate</span>
+</button>
+<input class="flex-1 bg-transparent border-none focus:ring-0 text-on-background font-body-lg px-2 placeholder:text-on-surface-variant/50" placeholder="Message MediLens AI..." type="text"/>
+<div class="flex items-center gap-1 pr-1 shrink-0">
+<button class="w-10 h-10 rounded-full hover:bg-surface-variant flex items-center justify-center text-on-surface-variant transition-colors">
+<span class="material-symbols-outlined">mic</span>
+</button>
+<button class="w-10 h-10 rounded-full bg-primary flex items-center justify-center text-on-primary shadow-md hover:opacity-90 transition-opacity active:scale-95">
+<span class="material-symbols-outlined" style="font-variation-settings: 'FILL' 1;">send</span>
+</button>
+</div>
+</div>
+<p class="text-center text-[10px] text-on-surface-variant/70 mt-1">MediLens AI can make mistakes. Always consult a healthcare professional.</p>
+</div>
+</div>
+</body></html>
