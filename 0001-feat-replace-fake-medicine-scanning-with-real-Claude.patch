@@ -1,0 +1,1861 @@
+From 9927256b916c8f54587aa611ee206fc30c3703cb Mon Sep 17 00:00:00 2001
+From: MediLens Dev <dev@medilens.local>
+Date: Thu, 9 Jul 2026 02:33:23 +0000
+Subject: [PATCH] feat: replace fake medicine scanning with real Claude AI
+ vision + real AI chat
+
+- backend/ai_service.py: Anthropic Claude integration for label scanning
+  (vision) and grounded pharmacist chat, with defensive JSON parsing and
+  graceful degradation when no API key is set
+- backend/config.py: centralized pydantic-settings config (.env driven)
+- POST /api/scan: new endpoint - uploads a photo, runs it through Claude
+  vision, cross-checks allergies deterministically (defense in depth),
+  persists medicine + auto-generated reminders, serves the photo back
+  via /uploads
+- POST /api/chat: now calls Claude with user profile + medication context,
+  falls back to the original rule-based responses if AI is unavailable
+- Fixed data-corruption bug: comma-delimited list storage broke on any
+  warning text containing a comma (e.g. '4,000 mg'); switched to a safe
+  '||' delimiter
+- Flutter: added image_picker-based real camera/gallery capture in
+  scan_tab.dart, wired through AppStateProvider.scanMedicineImage() to
+  the new endpoint, with real error dialogs instead of a fake always-
+  succeeds simulation
+- Added MedicineImage widget to resolve scanned-photo URLs vs bundled
+  demo assets across dashboard/detail screens
+- Fixed 1500-second (25 minute) delay bug in the offline chat fallback
+- api_service.dart: platform-aware backend base URL (10.0.2.2 for
+  Android emulator, override via --dart-define=API_BASE_URL), typed
+  ApiException with server error messages surfaced to the UI
+- Added CAMERA/INTERNET permissions (Android) and camera/photo library
+  usage descriptions (iOS)
+- Added backend Dockerfile, .env.example, .gitignore
+- Rewrote README with real setup/run/deploy instructions; removed the
+  inaccurate 'backend complete' status doc
+---
+ BACKEND_STATUS.md                        |  24 --
+ README.md                                | 130 +++++++++-
+ android/app/src/main/AndroidManifest.xml |   5 +
+ backend/.env.example                     |  14 +
+ backend/.gitignore                       |   5 +
+ backend/Dockerfile                       |  18 ++
+ backend/ai_service.py                    | 224 ++++++++++++++++
+ backend/config.py                        |  52 ++++
+ backend/main.py                          | 317 +++++++++++++++++------
+ backend/requirements.txt                 |   5 +-
+ backend/schemas.py                       |  24 +-
+ ios/Runner/Info.plist                    |   4 +
+ lib/providers/app_state.provider.dart    | 139 +++-------
+ lib/screens/dashboard_tab.dart           |   7 +-
+ lib/screens/medicine_details_screen.dart |   3 +-
+ lib/screens/scan_tab.dart                | 147 +++++++----
+ lib/services/api_service.dart            | 146 +++++++----
+ lib/widgets/medicine_image.dart          |  41 +++
+ pubspec.yaml                             |   2 +
+ 19 files changed, 978 insertions(+), 329 deletions(-)
+ delete mode 100644 BACKEND_STATUS.md
+ create mode 100644 backend/.env.example
+ create mode 100644 backend/.gitignore
+ create mode 100644 backend/Dockerfile
+ create mode 100644 backend/ai_service.py
+ create mode 100644 backend/config.py
+ create mode 100644 lib/widgets/medicine_image.dart
+
+diff --git a/BACKEND_STATUS.md b/BACKEND_STATUS.md
+deleted file mode 100644
+index a78cbba..0000000
+--- a/BACKEND_STATUS.md
++++ /dev/null
+@@ -1,24 +0,0 @@
+-# Backend Implementation Status
+-
+-## Status: ✅ COMPLETE
+-
+-The FastAPI backend implementation for MediLens-AI is now complete.
+-
+-### Completed Features
+-- FastAPI server setup and configuration
+-- Integration with Flutter mobile app
+-- API endpoints for medical image analysis
+-- Database connectivity
+-- Authentication and authorization
+-- Request/response handling
+-- Error handling and logging
+-
+-### Last Updated
+-- **Date**: 2026-06-30
+-- **Commit**: d5702f158ef0c850775a87b3b52a10845e9a7375
+-- **Message**: feat: complete MediLens AI Flutter mobile app and FastAPI backend integration
+-
+-### Next Steps
+-- Testing and QA
+-- Performance optimization
+-- Deployment preparation
+diff --git a/README.md b/README.md
+index 53f467b..bd21b30 100644
+--- a/README.md
++++ b/README.md
+@@ -1,17 +1,125 @@
+-# medilens_ai
++# MediLens AI
+ 
+-A new Flutter project.
++AI-powered medicine label scanner, medication reminder tracker, and pharmacist
++chat assistant. Flutter frontend + FastAPI backend, both backed by Claude
++(Anthropic) for the two AI features:
+ 
+-## Getting Started
++| Feature | How it works |
++|---|---|
++| **Scan a medicine label** | Camera/gallery photo → `POST /api/scan` → Claude vision model reads the label → structured JSON (name, dosage, side effects, warnings, reminder times) → deterministic allergy cross-check → saved to DB → reminders auto-created |
++| **AI Pharmacist chat** | `POST /api/chat` → Claude, grounded with the user's profile (allergies, blood type) and active medications as system-prompt context → falls back to a rule-based responder if no API key is configured, so the app never hard-fails |
+ 
+-This project is a starting point for a Flutter application.
++## Architecture
+ 
+-A few resources to get you started if this is your first Flutter project:
++```
++lib/
++  models/        Plain Dart data classes (Medicine, Reminder, ChatMessage)
++  providers/      AppStateProvider — single source of truth, syncs to backend
++  services/       ApiService — all HTTP calls, platform-aware base URL
++  screens/        UI screens (scan, dashboard, chat, reminders, profile...)
++  widgets/        Shared widgets (MedicineImage resolves asset vs scanned photo)
+ 
+-- [Learn Flutter](https://docs.flutter.dev/get-started/learn-flutter)
+-- [Write your first Flutter app](https://docs.flutter.dev/get-started/codelab)
+-- [Flutter learning resources](https://docs.flutter.dev/reference/learning-resources)
++backend/
++  main.py         FastAPI app, all REST endpoints
++  ai_service.py   Anthropic Claude integration (vision scan + chat)
++  config.py       Centralized settings (pydantic-settings, reads .env)
++  models.py       SQLAlchemy ORM models
++  schemas.py      Pydantic request/response schemas
++  database.py     SQLite engine/session setup
++```
+ 
+-For help getting started with Flutter development, view the
+-[online documentation](https://docs.flutter.dev/), which offers tutorials,
+-samples, guidance on mobile development, and a full API reference.
++## Prerequisites
++
++- Flutter SDK 3.12+ (`flutter --version`)
++- Python 3.11+
++- An [Anthropic API key](https://console.anthropic.com/) — required for real
++  AI scanning; the app runs without one but scanning will return a clear
++  "not configured" error and chat drops to rule-based answers.
++
++## 1. Run the backend
++
++```bash
++cd backend
++python3 -m venv .venv && source .venv/bin/activate   # Windows: .venv\Scripts\activate
++pip install -r requirements.txt
++
++cp .env.example .env
++# edit .env and set ANTHROPIC_API_KEY=sk-ant-...
++
++uvicorn main:app --reload --host 0.0.0.0 --port 8000
++```
++
++Verify it's alive:
++
++```bash
++curl http://localhost:8000/api/health
++# {"status":"ok","ai_configured":true,"environment":"development"}
++```
++
++Interactive API docs: `http://localhost:8000/docs`
++
++### Docker alternative
++
++```bash
++cd backend
++docker build -t medilens-backend .
++docker run -p 8000:8000 --env-file .env medilens-backend
++```
++
++## 2. Run the Flutter app
++
++```bash
++flutter pub get
++```
++
++**Backend URL by platform** (`lib/services/api_service.dart` resolves this
++automatically, override with `--dart-define` if needed):
++
++| Target | Default URL used |
++|---|---|
++| iOS Simulator / macOS / Web dev server | `http://localhost:8000/api` |
++| Android Emulator | `http://10.0.2.2:8000/api` (auto-detected) |
++| Physical device | **must override** — your machine's LAN IP |
++
++```bash
++# Physical device example:
++flutter run --dart-define=API_BASE_URL=http://192.168.1.20:8000/api
++```
++
++```bash
++flutter run          # emulator/simulator/desktop
++flutter run -d chrome
++```
++
++## Notes on the scanning feature
++
++- Camera and photo-library permissions are declared for both Android
++  (`CAMERA`, runtime-requested via `image_picker`) and iOS
++  (`NSCameraUsageDescription`, `NSPhotoLibraryUsageDescription`).
++- The backend never trusts the LLM alone for allergy safety: it also runs a
++  deterministic substring/cross-reactivity check (e.g. Penicillin ↔
++  Amoxicillin) against the user's recorded allergies before flagging a
++  conflict — defense in depth for a safety-relevant feature.
++- Scanned photos are stored under `backend/uploads/` and served at
++  `/uploads/<file>`; the Flutter app resolves this into a full URL via
++  `ApiService.resolveImageUrl`.
++
++## Deployment
++
++- **Backend**: containerized via `backend/Dockerfile`; swap SQLite for
++  Postgres by changing `DATABASE_URL` in `.env` (SQLAlchemy already
++  abstracts the engine — no code changes needed beyond the URL and driver).
++  Put it behind a reverse proxy (nginx/Caddy) with TLS in production, and
++  set `ALLOWED_ORIGINS` to your real app origin(s) instead of `*`.
++- **Flutter**: `flutter build apk` / `flutter build ios` / `flutter build web`,
++  always passing the production `--dart-define=API_BASE_URL=...`.
++
++## Known limitations (be upfront about these)
++
++- Single hardcoded demo user (`alex.rivera@medilens.com`) — no auth/session
++  system yet. The login/onboarding screens are UI-only.
++- SQLite is fine for local dev/demo; move to Postgres before any real
++  multi-user deployment.
++- AI scan results are not a substitute for professional medical or
++  pharmacist verification — this is enforced in the chat system prompt but
++  worth remembering as a product constraint, not just a code detail.
+diff --git a/android/app/src/main/AndroidManifest.xml b/android/app/src/main/AndroidManifest.xml
+index 42f8c6e..03d87ae 100644
+--- a/android/app/src/main/AndroidManifest.xml
++++ b/android/app/src/main/AndroidManifest.xml
+@@ -1,4 +1,9 @@
+ <manifest xmlns:android="http://schemas.android.com/apk/res/android">
++    <!-- Required for talking to the MediLens AI backend (image upload + chat) -->
++    <uses-permission android:name="android.permission.INTERNET"/>
++    <!-- Required for the medicine label scanner -->
++    <uses-permission android:name="android.permission.CAMERA"/>
++    <uses-feature android:name="android.hardware.camera" android:required="false"/>
+     <application
+         android:label="medilens_ai"
+         android:name="${applicationName}"
+diff --git a/backend/.env.example b/backend/.env.example
+new file mode 100644
+index 0000000..e9db906
+--- /dev/null
++++ b/backend/.env.example
+@@ -0,0 +1,14 @@
++# Copy this file to `.env` in the backend/ directory and fill in your key.
++# Get a key at https://console.anthropic.com/
++
++ANTHROPIC_API_KEY=sk-ant-your-key-here
++ANTHROPIC_CHAT_MODEL=claude-sonnet-4-6
++ANTHROPIC_VISION_MODEL=claude-sonnet-4-6
++
++ENVIRONMENT=development
++
++# Comma-separated list of allowed origins in production, e.g.:
++# ALLOWED_ORIGINS=https://app.medilens.ai,https://admin.medilens.ai
++ALLOWED_ORIGINS=*
++
++MAX_UPLOAD_SIZE_MB=8
+diff --git a/backend/.gitignore b/backend/.gitignore
+new file mode 100644
+index 0000000..8c25597
+--- /dev/null
++++ b/backend/.gitignore
+@@ -0,0 +1,5 @@
++__pycache__/
++*.pyc
++.env
++medilens.db
++uploads/
+diff --git a/backend/Dockerfile b/backend/Dockerfile
+new file mode 100644
+index 0000000..a32c606
+--- /dev/null
++++ b/backend/Dockerfile
+@@ -0,0 +1,18 @@
++FROM python:3.12-slim
++
++WORKDIR /app
++
++ENV PYTHONDONTWRITEBYTECODE=1 \
++    PYTHONUNBUFFERED=1
++
++COPY requirements.txt .
++RUN pip install --no-cache-dir -r requirements.txt
++
++COPY . .
++
++RUN mkdir -p /app/uploads
++
++EXPOSE 8000
++
++# --workers scales with CPU cores in production; 1 is fine for local/dev.
++CMD ["uvicorn", "main:app", "--host", "0.0.0.0", "--port", "8000"]
+diff --git a/backend/ai_service.py b/backend/ai_service.py
+new file mode 100644
+index 0000000..b2816bb
+--- /dev/null
++++ b/backend/ai_service.py
+@@ -0,0 +1,224 @@
++"""
++AI service layer — wraps all calls to the Anthropic Claude API.
++
++Two capabilities:
++  1. analyze_medicine_image(): multimodal (vision) call that turns a photo
++     of a medicine label/prescription into structured data.
++  2. get_ai_chat_response(): grounded conversational assistant that has
++     the user's profile + active medications injected as context.
++
++Design notes (why it's built this way):
++  - We never trust the LLM as the sole safety gate for allergy conflicts.
++    The model's flag is combined with a deterministic substring check in
++    `main.py` (defense in depth — a classic pattern for safety-critical
++    AI features).
++  - JSON is extracted defensively: models occasionally wrap JSON in
++    ```json fences even when told not to. We strip those before parsing.
++  - All network/parsing failures raise `AIServiceError` so the API
++    layer can translate them into clean HTTP responses instead of 500s.
++"""
++from __future__ import annotations
++
++import base64
++import json
++import logging
++import re
++from dataclasses import dataclass, field
++
++from anthropic import Anthropic, APIError, APIStatusError
++
++from config import get_settings
++
++logger = logging.getLogger("medilens.ai")
++
++settings = get_settings()
++_client: Anthropic | None = Anthropic(api_key=settings.anthropic_api_key) if settings.anthropic_api_key else None
++
++
++class AIServiceError(Exception):
++    """Raised whenever the AI layer cannot produce a usable result."""
++
++
++def is_ai_configured() -> bool:
++    return _client is not None
++
++
++_JSON_FENCE_RE = re.compile(r"```(?:json)?\s*(.*?)\s*```", re.DOTALL)
++
++
++def _extract_json(raw_text: str) -> dict:
++    """Pull a JSON object out of a model response, tolerating code fences."""
++    match = _JSON_FENCE_RE.search(raw_text)
++    candidate = match.group(1) if match else raw_text.strip()
++    try:
++        return json.loads(candidate)
++    except json.JSONDecodeError:
++        # Last resort: grab the widest {...} span in the text.
++        start, end = candidate.find("{"), candidate.rfind("}")
++        if start != -1 and end != -1 and end > start:
++            return json.loads(candidate[start : end + 1])
++        raise
++
++
++SCAN_SYSTEM_PROMPT = """You are the vision engine inside MediLens AI, a medication-safety app.
++You will be shown a photo of a medicine package, blister strip, bottle label, or prescription.
++
++Extract the medication information and respond with ONLY a single JSON object
++(no prose, no markdown fences) matching exactly this schema:
++
++{
++  "name": string,                 // Medicine / brand name as printed
++  "dosage": string,                // e.g. "500 mg"
++  "frequency": string,             // e.g. "Twice daily" (infer a sensible default if not printed)
++  "instructions": string,          // Plain-language usage instructions
++  "side_effects": [string, ...],   // 2-5 common side effects
++  "warnings": [string, ...],       // 2-4 important safety warnings, plain language
++  "time_list": [string, ...],      // Suggested reminder times in "HH:MM AM/PM" format, count matching frequency
++  "confidence": number,            // 0.0-1.0 how confident you are this is a correctly read label
++  "is_readable": boolean           // false if the image is too blurry/dark/incomplete to identify a medicine
++}
++
++Rules:
++- If the image clearly is NOT a medicine label/prescription (e.g. random object), set is_readable to false,
++  name to "Unknown", and leave arrays empty.
++- Never invent a dosage you cannot read; if unclear, make your best estimate and lower "confidence" instead of failing.
++- Keep every string concise (under 140 characters) and free of medical jargon where possible.
++- Do not include any text outside the JSON object."""
++
++
++@dataclass
++class ScanResult:
++    name: str
++    dosage: str
++    frequency: str
++    instructions: str
++    side_effects: list[str] = field(default_factory=list)
++    warnings: list[str] = field(default_factory=list)
++    time_list: list[str] = field(default_factory=list)
++    confidence: float = 0.0
++    is_readable: bool = True
++
++
++def analyze_medicine_image(image_bytes: bytes, mime_type: str) -> ScanResult:
++    if _client is None:
++        raise AIServiceError(
++            "ANTHROPIC_API_KEY is not configured on the server. "
++            "Set it in backend/.env to enable real medicine scanning."
++        )
++
++    b64_image = base64.b64encode(image_bytes).decode("utf-8")
++
++    try:
++        response = _client.messages.create(
++            model=settings.anthropic_vision_model,
++            max_tokens=1024,
++            system=SCAN_SYSTEM_PROMPT,
++            messages=[
++                {
++                    "role": "user",
++                    "content": [
++                        {
++                            "type": "image",
++                            "source": {
++                                "type": "base64",
++                                "media_type": mime_type,
++                                "data": b64_image,
++                            },
++                        },
++                        {
++                            "type": "text",
++                            "text": "Identify this medicine and return the JSON object described in your instructions.",
++                        },
++                    ],
++                }
++            ],
++        )
++    except (APIError, APIStatusError) as exc:
++        logger.exception("Anthropic vision call failed")
++        raise AIServiceError(f"AI scanning service unavailable: {exc}") from exc
++
++    raw_text = "".join(block.text for block in response.content if block.type == "text")
++    try:
++        parsed = _extract_json(raw_text)
++    except (json.JSONDecodeError, ValueError) as exc:
++        logger.error("Could not parse AI scan response: %s", raw_text)
++        raise AIServiceError("AI returned an unreadable response. Please retake the photo.") from exc
++
++    if not parsed.get("is_readable", True):
++        raise AIServiceError(
++            "Couldn't confidently read a medicine label in this photo. "
++            "Try better lighting and keep the label flat and centered."
++        )
++
++    return ScanResult(
++        name=str(parsed.get("name", "Unknown Medicine")).strip(),
++        dosage=str(parsed.get("dosage", "N/A")).strip(),
++        frequency=str(parsed.get("frequency", "As directed")).strip(),
++        instructions=str(parsed.get("instructions", "Follow the printed label instructions.")).strip(),
++        side_effects=[str(s).strip() for s in parsed.get("side_effects", [])][:6],
++        warnings=[str(w).strip() for w in parsed.get("warnings", [])][:6],
++        time_list=[str(t).strip() for t in parsed.get("time_list", [])][:6] or ["08:00 AM"],
++        confidence=float(parsed.get("confidence", 0.5)),
++        is_readable=True,
++    )
++
++
++CHAT_SYSTEM_PROMPT_TEMPLATE = """You are the MediLens AI Pharmacist — a friendly, careful medication-safety
++assistant embedded in a mobile app. You are NOT a doctor and must never
++present yourself as one.
++
++Patient profile:
++- Name: {name}
++- Blood type: {blood_type}
++- Weight: {weight}
++- Known allergies: {allergies}
++
++Active medications:
++{medicines}
++
++Guidelines:
++- Ground every answer in the patient profile above when relevant (e.g. flag allergy conflicts explicitly).
++- Be concise: 2-5 sentences unless the user asks for detail.
++- Always recommend consulting a licensed clinician for diagnosis, dosage changes, or anything urgent.
++- If asked something outside medication safety/scheduling, gently redirect to what you can help with.
++- Never invent drug interaction data you're not confident about — say so plainly instead."""
++
++
++def get_ai_chat_response(
++    user_message: str,
++    user_name: str,
++    blood_type: str,
++    weight: str,
++    allergies: list[str],
++    medicines: list[str],
++    history: list[tuple[str, bool]],
++) -> str:
++    """history: list of (text, is_user) tuples, oldest first, already excluding user_message."""
++    if _client is None:
++        raise AIServiceError("ANTHROPIC_API_KEY is not configured on the server.")
++
++    system_prompt = CHAT_SYSTEM_PROMPT_TEMPLATE.format(
++        name=user_name,
++        blood_type=blood_type,
++        weight=weight,
++        allergies=", ".join(allergies) if allergies else "None recorded",
++        medicines="\n".join(f"- {m}" for m in medicines) if medicines else "- None recorded",
++    )
++
++    messages = []
++    for text, is_user in history[-10:]:
++        messages.append({"role": "user" if is_user else "assistant", "content": text})
++    messages.append({"role": "user", "content": user_message})
++
++    try:
++        response = _client.messages.create(
++            model=settings.anthropic_chat_model,
++            max_tokens=500,
++            system=system_prompt,
++            messages=messages,
++        )
++    except (APIError, APIStatusError) as exc:
++        logger.exception("Anthropic chat call failed")
++        raise AIServiceError(f"AI chat service unavailable: {exc}") from exc
++
++    return "".join(block.text for block in response.content if block.type == "text").strip()
+diff --git a/backend/config.py b/backend/config.py
+new file mode 100644
+index 0000000..7e9053d
+--- /dev/null
++++ b/backend/config.py
+@@ -0,0 +1,52 @@
++"""
++Centralized application configuration.
++
++All environment-dependent values live here so the rest of the codebase
++never reads os.environ directly. This is the standard pattern used in
++production FastAPI services (pydantic-settings + .env file).
++"""
++from functools import lru_cache
++from pathlib import Path
++from pydantic_settings import BaseSettings, SettingsConfigDict
++
++
++BASE_DIR = Path(__file__).resolve().parent
++
++
++class Settings(BaseSettings):
++    model_config = SettingsConfigDict(env_file=".env", env_file_encoding="utf-8", extra="ignore")
++
++    # --- App ---
++    app_name: str = "MediLens AI Backend"
++    environment: str = "development"  # development | staging | production
++
++    # --- Database ---
++    database_url: str = f"sqlite:///{BASE_DIR / 'medilens.db'}"
++
++    # --- CORS ---
++    # In production this should be your actual Flutter web origin(s), not "*".
++    allowed_origins: str = "*"
++
++    # --- AI (Anthropic Claude) ---
++    # If unset, the app degrades gracefully to rule-based chat + a clear
++    # error on the /api/scan endpoint instead of crashing on boot.
++    anthropic_api_key: str | None = None
++    anthropic_chat_model: str = "claude-sonnet-4-6"
++    anthropic_vision_model: str = "claude-sonnet-4-6"
++
++    # --- File uploads ---
++    upload_dir: Path = BASE_DIR / "uploads"
++    max_upload_size_mb: int = 8
++
++    @property
++    def cors_origins(self) -> list[str]:
++        if self.allowed_origins.strip() == "*":
++            return ["*"]
++        return [o.strip() for o in self.allowed_origins.split(",") if o.strip()]
++
++
++@lru_cache
++def get_settings() -> Settings:
++    settings = Settings()
++    settings.upload_dir.mkdir(parents=True, exist_ok=True)
++    return settings
+diff --git a/backend/main.py b/backend/main.py
+index 6823a14..c440fc5 100644
+--- a/backend/main.py
++++ b/backend/main.py
+@@ -1,46 +1,70 @@
+-from fastapi import FastAPI, Depends, HTTPException
++import datetime
++import logging
++import uuid
++
++from fastapi import Depends, FastAPI, File, HTTPException, UploadFile
+ from fastapi.middleware.cors import CORSMiddleware
++from fastapi.staticfiles import StaticFiles
+ from sqlalchemy.orm import Session
+-import datetime
+ 
+-from database import engine, Base, get_db
++import ai_service
+ import models
+ import schemas
+-from schemas import str_to_list, list_to_str
++from ai_service import AIServiceError
++from config import get_settings
++from database import Base, engine, get_db
++from schemas import list_to_str, str_to_list
++
++logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(name)s: %(message)s")
++logger = logging.getLogger("medilens.api")
++
++settings = get_settings()
+ 
+ # Create Database tables
+ Base.metadata.create_all(bind=engine)
+ 
+-app = FastAPI(title="MediLens AI Backend")
++app = FastAPI(title=settings.app_name)
+ 
+-# Add CORS Middleware to support Flutter web/simulator requests
+ app.add_middleware(
+     CORSMiddleware,
+-    allow_origins=["*"],
++    allow_origins=settings.cors_origins,
+     allow_credentials=True,
+     allow_methods=["*"],
+     allow_headers=["*"],
+ )
+ 
+-# Startup event to populate seed data
++# Serve scanned medicine photos back to the app (e.g. http://host:8000/uploads/<file>.jpg)
++app.mount("/uploads", StaticFiles(directory=str(settings.upload_dir)), name="uploads")
++
++DEFAULT_USER_EMAIL = "alex.rivera@medilens.com"
++ALLOWED_IMAGE_TYPES = {"image/jpeg": "jpg", "image/png": "png", "image/webp": "webp"}
++
++
++# ---------------------------------------------------------------------------
++# Startup seed data
++# ---------------------------------------------------------------------------
+ @app.on_event("startup")
+ def startup_populate_data():
+     db = next(get_db())
+-    
+-    # 1. Create Mock User if not exists
+-    user = db.query(models.User).filter_by(email="alex.rivera@medilens.com").first()
++
++    if not settings.anthropic_api_key:
++        logger.warning(
++            "ANTHROPIC_API_KEY is not set - /api/scan will return 503 and /api/chat "
++            "will fall back to rule-based responses. See backend/.env.example."
++        )
++
++    user = db.query(models.User).filter_by(email=DEFAULT_USER_EMAIL).first()
+     if not user:
+         user = models.User(
+             name="Alex Rivera",
+-            email="alex.rivera@medilens.com",
++            email=DEFAULT_USER_EMAIL,
+             blood_type="O+ Positive",
+             weight="72 kg",
+-            allergies="Penicillin,Sulfa drugs"
++            allergies="Penicillin||Sulfa drugs",
+         )
+         db.add(user)
+         db.commit()
+ 
+-    # 2. Create Initial Paracetamol Medicine if none exist
+     med = db.query(models.Medicine).filter_by(name="Paracetamol").first()
+     if not med:
+         med = models.Medicine(
+@@ -49,61 +73,46 @@ def startup_populate_data():
+             frequency="Twice daily",
+             instructions="Take after meals with warm water.",
+             image_asset="assets/images/medicine_details.png",
+-            side_effects="Nausea or stomach discomfort,Allergic skin rash (rare),Drowsiness if combined with certain medications",
+-            warnings="Do not exceed 4,000 mg (8 tablets of 500 mg) in 24 hours.,Avoid alcohol consumption while taking this medication as it increases the risk of liver toxicity.,Consult doctor if fever persists for more than 3 days.",
++            side_effects="Nausea or stomach discomfort||Allergic skin rash (rare)||Drowsiness if combined with certain medications",
++            warnings="Do not exceed 4,000 mg (8 tablets of 500 mg) in 24 hours.||Avoid alcohol consumption while taking this medication as it increases the risk of liver toxicity.||Consult doctor if fever persists for more than 3 days.",
+             active_allergies_conflict=False,
+-            time_list="08:00 AM,08:00 PM"
++            time_list="08:00 AM||08:00 PM",
+         )
+         db.add(med)
+         db.commit()
+ 
+-    # 3. Create Initial Reminders if none exist
+     reminders = db.query(models.MedicationReminder).all()
+     if not reminders:
+         now = datetime.datetime.utcnow()
+-        rem1 = models.MedicationReminder(
+-            id="rem_1",
+-            medicine_name="Paracetamol",
+-            dosage="500 mg",
+-            time="08:00 AM",
+-            is_taken=True,
+-            date=now
+-        )
+-        rem2 = models.MedicationReminder(
+-            id="rem_2",
+-            medicine_name="Paracetamol",
+-            dosage="500 mg",
+-            time="08:00 PM",
+-            is_taken=False,
+-            date=now
+-        )
+-        db.add(rem1)
+-        db.add(rem2)
++        db.add(models.MedicationReminder(id="rem_1", medicine_name="Paracetamol", dosage="500 mg", time="08:00 AM", is_taken=True, date=now))
++        db.add(models.MedicationReminder(id="rem_2", medicine_name="Paracetamol", dosage="500 mg", time="08:00 PM", is_taken=False, date=now))
+         db.commit()
+ 
+-    # 4. Create Initial Greeting Chat message if none exist
+     chat = db.query(models.ChatMessage).all()
+     if not chat:
+-        msg = models.ChatMessage(
++        db.add(models.ChatMessage(
+             text="Hello Alex! I am your MediLens AI Pharmacist. Ask me any question about your medications, side effects, or schedule guidelines.",
+             is_user=False,
+-            timestamp=datetime.datetime.utcnow() - datetime.timedelta(minutes=10)
+-        )
+-        db.add(msg)
++            timestamp=datetime.datetime.utcnow() - datetime.timedelta(minutes=10),
++        ))
+         db.commit()
+ 
+-# Helper mappers
+-def map_user(u):
++
++# ---------------------------------------------------------------------------
++# Mappers
++# ---------------------------------------------------------------------------
++def map_user(u: models.User) -> dict:
+     return {
+         "id": u.id,
+         "name": u.name,
+         "email": u.email,
+         "blood_type": u.blood_type,
+         "weight": u.weight,
+-        "allergies": str_to_list(u.allergies)
++        "allergies": str_to_list(u.allergies),
+     }
+ 
+-def map_medicine(m):
++
++def map_medicine(m: models.Medicine) -> dict:
+     return {
+         "id": m.id,
+         "name": m.name,
+@@ -115,21 +124,40 @@ def map_medicine(m):
+         "side_effects": str_to_list(m.side_effects),
+         "warnings": str_to_list(m.warnings),
+         "active_allergies_conflict": m.active_allergies_conflict,
+-        "time_list": str_to_list(m.time_list)
++        "time_list": str_to_list(m.time_list),
++    }
++
++
++# ---------------------------------------------------------------------------
++# Health
++# ---------------------------------------------------------------------------
++@app.get("/api/health")
++def health_check():
++    return {
++        "status": "ok",
++        "ai_configured": ai_service.is_ai_configured(),
++        "environment": settings.environment,
+     }
+ 
+-# Endpoints
++
++# ---------------------------------------------------------------------------
++# User
++# ---------------------------------------------------------------------------
+ @app.get("/api/user", response_model=schemas.UserResponse)
+ def get_user(db: Session = Depends(get_db)):
+-    u = db.query(models.User).filter_by(email="alex.rivera@medilens.com").first()
++    u = db.query(models.User).filter_by(email=DEFAULT_USER_EMAIL).first()
+     if not u:
+         raise HTTPException(status_code=404, detail="User not found")
+     return map_user(u)
+ 
++
++# ---------------------------------------------------------------------------
++# Medicines
++# ---------------------------------------------------------------------------
+ @app.get("/api/medicines")
+ def get_medicines(db: Session = Depends(get_db)):
+-    meds = db.query(models.Medicine).all()
+-    return [map_medicine(m) for m in meds]
++    return [map_medicine(m) for m in db.query(models.Medicine).all()]
++
+ 
+ @app.post("/api/medicines")
+ def add_medicine(med: schemas.MedicineCreate, db: Session = Depends(get_db)):
+@@ -142,17 +170,118 @@ def add_medicine(med: schemas.MedicineCreate, db: Session = Depends(get_db)):
+         side_effects=list_to_str(med.side_effects),
+         warnings=list_to_str(med.warnings),
+         active_allergies_conflict=med.active_allergies_conflict,
+-        time_list=list_to_str(med.time_list)
++        time_list=list_to_str(med.time_list),
+     )
+     db.add(db_med)
+     db.commit()
+     db.refresh(db_med)
+     return map_medicine(db_med)
+ 
++
++# ---------------------------------------------------------------------------
++# AI Medicine Scanning - the core MediLens feature
++# ---------------------------------------------------------------------------
++@app.post("/api/scan", response_model=schemas.ScanResponse)
++async def scan_medicine(file: UploadFile = File(...), db: Session = Depends(get_db)):
++    if file.content_type not in ALLOWED_IMAGE_TYPES:
++        raise HTTPException(
++            status_code=415,
++            detail=f"Unsupported image type '{file.content_type}'. Use JPEG, PNG, or WEBP.",
++        )
++
++    image_bytes = await file.read()
++    max_bytes = settings.max_upload_size_mb * 1024 * 1024
++    if len(image_bytes) > max_bytes:
++        raise HTTPException(status_code=413, detail=f"Image exceeds {settings.max_upload_size_mb}MB limit.")
++    if len(image_bytes) == 0:
++        raise HTTPException(status_code=400, detail="Empty file uploaded.")
++
++    # Persist the photo so the app can show what was scanned later.
++    ext = ALLOWED_IMAGE_TYPES[file.content_type]
++    filename = f"{uuid.uuid4().hex}.{ext}"
++    (settings.upload_dir / filename).write_bytes(image_bytes)
++    image_asset_path = f"/uploads/{filename}"
++
++    try:
++        result = ai_service.analyze_medicine_image(image_bytes, file.content_type)
++    except AIServiceError as exc:
++        logger.warning("Scan rejected: %s", exc)
++        raise HTTPException(status_code=422, detail=str(exc)) from exc
++
++    # Defense-in-depth: never rely solely on the LLM's own allergy judgement.
++    # Deterministically cross-check the scanned medicine name against the
++    # user's recorded allergies as well.
++    user = db.query(models.User).filter_by(email=DEFAULT_USER_EMAIL).first()
++    user_allergies = str_to_list(user.allergies) if user else []
++    name_lower = result.name.lower()
++    conflict_reason = None
++    deterministic_conflict = False
++    for allergy in user_allergies:
++        allergy_lower = allergy.lower().strip()
++        if allergy_lower and allergy_lower in name_lower:
++            deterministic_conflict = True
++            conflict_reason = f"Contains or relates to '{allergy}', which is listed in your allergy profile."
++            break
++    # Penicillin-class cross-reactivity is a well-known real-world case worth hardcoding.
++    if not deterministic_conflict and "penicillin" in [a.lower() for a in user_allergies]:
++        if any(k in name_lower for k in ("amoxicillin", "ampicillin", "penicillin")):
++            deterministic_conflict = True
++            conflict_reason = "Penicillin-class antibiotic - cross-reacts with your recorded Penicillin allergy."
++
++    is_conflict = deterministic_conflict or any("allerg" in w.lower() for w in result.warnings)
++    if deterministic_conflict:
++        warnings = [f"ALLERGY WARNING: {conflict_reason}"] + result.warnings
++    else:
++        warnings = result.warnings
++
++    db_med = models.Medicine(
++        name=result.name,
++        dosage=result.dosage,
++        frequency=result.frequency,
++        instructions=result.instructions,
++        image_asset=image_asset_path,
++        side_effects=list_to_str(result.side_effects),
++        warnings=list_to_str(warnings),
++        active_allergies_conflict=is_conflict,
++        time_list=list_to_str(result.time_list),
++    )
++    db.add(db_med)
++    db.commit()
++    db.refresh(db_med)
++
++    created_reminders = []
++    now = datetime.datetime.utcnow()
++    for t in result.time_list:
++        rem = models.MedicationReminder(
++            id=f"rem_{uuid.uuid4().hex[:10]}",
++            medicine_name=result.name,
++            dosage=result.dosage,
++            time=t,
++            is_taken=False,
++            date=now,
++        )
++        db.add(rem)
++        created_reminders.append(rem)
++    db.commit()
++    for rem in created_reminders:
++        db.refresh(rem)
++
++    return {
++        "medicine": map_medicine(db_med),
++        "reminders": created_reminders,
++        "ai_confidence": result.confidence,
++        "allergy_conflict": is_conflict,
++        "conflict_reason": conflict_reason,
++    }
++
++
++# ---------------------------------------------------------------------------
++# Reminders
++# ---------------------------------------------------------------------------
+ @app.get("/api/reminders")
+ def get_reminders(db: Session = Depends(get_db)):
+-    reminders = db.query(models.MedicationReminder).all()
+-    return reminders
++    return db.query(models.MedicationReminder).all()
++
+ 
+ @app.post("/api/reminders")
+ def add_reminder(rem: schemas.ReminderCreate, db: Session = Depends(get_db)):
+@@ -162,13 +291,14 @@ def add_reminder(rem: schemas.ReminderCreate, db: Session = Depends(get_db)):
+         dosage=rem.dosage,
+         time=rem.time,
+         is_taken=rem.is_taken,
+-        date=datetime.datetime.utcnow()
++        date=datetime.datetime.utcnow(),
+     )
+     db.add(db_rem)
+     db.commit()
+     db.refresh(db_rem)
+     return db_rem
+ 
++
+ @app.patch("/api/reminders/{reminder_id}/toggle")
+ def toggle_reminder(reminder_id: str, db: Session = Depends(get_db)):
+     rem = db.query(models.MedicationReminder).filter_by(id=reminder_id).first()
+@@ -179,42 +309,65 @@ def toggle_reminder(reminder_id: str, db: Session = Depends(get_db)):
+     db.refresh(rem)
+     return rem
+ 
++
++# ---------------------------------------------------------------------------
++# Chat - real Claude-backed AI Pharmacist with a rule-based safety net
++# ---------------------------------------------------------------------------
++def _rule_based_response(query: str) -> str:
++    query = query.lower()
++    if "paracetamol" in query or "acetaminophen" in query:
++        return "Paracetamol (500 mg) is safe for general pain and fever. Avoid taking other cold or flu medications containing paracetamol at the same time to prevent accidental overdose. Limit use to a maximum of 4g per day."
++    if "penicillin" in query or "allergy" in query:
++        return "I see Penicillin listed in your profile allergies. You must avoid Penicillin, Amoxicillin, and other beta-lactam antibiotics. Always inform your prescribing doctor of this allergy."
++    if "remind" in query or "schedule" in query:
++        return "You have Paracetamol scheduled for 08:00 AM (taken) and 08:00 PM today. You can add new reminders in the Reminders tab."
++    if "side effect" in query:
++        return "Common side effects for your active medications are listed in their respective detail screens. For Paracetamol, mild stomach upset is possible. If you experience skin rashes or swelling, stop usage immediately."
++    return "I've analyzed your query. To ensure absolute safety, please verify the exact label of the medicine. Based on your profile, I don't see any immediate conflicts, but consult a clinician for long-term usage guidelines."
++
++
+ @app.get("/api/chat")
+ def get_chat_messages(db: Session = Depends(get_db)):
+-    messages = db.query(models.ChatMessage).order_by(models.ChatMessage.timestamp.asc()).all()
+-    return messages
++    return db.query(models.ChatMessage).order_by(models.ChatMessage.timestamp.asc()).all()
++
+ 
+ @app.post("/api/chat")
+ def post_chat_message(msg: schemas.ChatMessageCreate, db: Session = Depends(get_db)):
+-    # 1. Save user message
+-    user_msg = models.ChatMessage(
+-        text=msg.text,
+-        is_user=True,
+-        timestamp=datetime.datetime.utcnow()
+-    )
++    user_msg = models.ChatMessage(text=msg.text, is_user=True, timestamp=datetime.datetime.utcnow())
+     db.add(user_msg)
+     db.commit()
+-    
+-    # 2. Formulate simulated AI response
+-    query = msg.text.lower()
+-    response_text = ""
+-    if "paracetamol" in query or "acetaminophen" in query:
+-        response_text = "Paracetamol (500 mg) is safe for general pain and fever. Avoid taking other cold or flu medications containing paracetamol at the same time to prevent accidental overdose. Limit use to a maximum of 4g per day."
+-    elif "penicillin" in query or "allergy" in query:
+-        response_text = "I see Penicillin listed in your profile allergies. You must avoid Penicillin, Amoxicillin, and other beta-lactam antibiotics. Always inform your prescribing doctor of this allergy."
+-    elif "remind" in query or "schedule" in query:
+-        response_text = "You have Paracetamol scheduled for 08:00 AM (taken) and 08:00 PM today. You can add new reminders in the Reminders tab."
+-    elif "side effect" in query:
+-        response_text = "Common side effects for your active medications are listed in their respective detail screens. For Paracetamol, mild stomach upset is possible. If you experience skin rashes or swelling, stop usage immediately."
+-    else:
+-        response_text = "I've analyzed your query. To ensure absolute safety, please verify the exact label of the medicine. Based on your profile, I don't see any immediate conflicts, but consult a clinician for long-term usage guidelines."
+ 
+-    ai_msg = models.ChatMessage(
+-        text=response_text,
+-        is_user=False,
+-        timestamp=datetime.datetime.utcnow()
+-    )
++    response_text = None
++    if ai_service.is_ai_configured():
++        try:
++            user = db.query(models.User).filter_by(email=DEFAULT_USER_EMAIL).first()
++            medicines = db.query(models.Medicine).all()
++            history_rows = (
++                db.query(models.ChatMessage)
++                .order_by(models.ChatMessage.timestamp.asc())
++                .all()
++            )
++            history = [(m.text, m.is_user) for m in history_rows[:-1]]  # exclude the message we just saved
++
++            response_text = ai_service.get_ai_chat_response(
++                user_message=msg.text,
++                user_name=user.name if user else "there",
++                blood_type=user.blood_type if user else "Unknown",
++                weight=user.weight if user else "Unknown",
++                allergies=str_to_list(user.allergies) if user else [],
++                medicines=[f"{m.name} ({m.dosage}, {m.frequency})" for m in medicines],
++                history=history,
++            )
++        except AIServiceError as exc:
++            logger.warning("AI chat failed, falling back to rule-based response: %s", exc)
++
++    if not response_text:
++        response_text = _rule_based_response(msg.text)
++
++    ai_msg = models.ChatMessage(text=response_text, is_user=False, timestamp=datetime.datetime.utcnow())
+     db.add(ai_msg)
+     db.commit()
+-    
++    db.refresh(user_msg)
++    db.refresh(ai_msg)
++
+     return {"user_message": user_msg, "ai_message": ai_msg}
+diff --git a/backend/requirements.txt b/backend/requirements.txt
+index c376e6a..20163d6 100644
+--- a/backend/requirements.txt
++++ b/backend/requirements.txt
+@@ -1,5 +1,8 @@
+ fastapi==0.111.0
+-uvicorn==0.30.1
++uvicorn[standard]==0.30.1
+ sqlalchemy==2.0.30
+ pydantic==2.7.2
+ pydantic-settings==2.3.1
++anthropic==0.34.2
++python-multipart==0.0.9
++python-dotenv==1.0.1
+diff --git a/backend/schemas.py b/backend/schemas.py
+index 1259f11..4952fa5 100644
+--- a/backend/schemas.py
++++ b/backend/schemas.py
+@@ -2,16 +2,25 @@ from pydantic import BaseModel
+ from typing import List, Optional
+ import datetime
+ 
+-# Helper functions to convert between DB comma-separated strings and Pydantic lists
++# Helper functions to convert between DB delimited strings and Pydantic lists.
++# NOTE: a plain "," was the original delimiter, but free-text warnings like
++# "Do not exceed 4,000 mg" contain commas themselves and would silently get
++# split apart. "||" is used instead since it practically never occurs in
++# medical copy. This is a pure serialization detail - SQLite in this
++# starter project has no native array column type.
++_LIST_DELIMITER = "||"
++
++
+ def str_to_list(val: Optional[str]) -> List[str]:
+     if not val:
+         return []
+-    return [item.strip() for item in val.split(",") if item.strip()]
++    return [item.strip() for item in val.split(_LIST_DELIMITER) if item.strip()]
++
+ 
+ def list_to_str(lst: Optional[List[str]]) -> str:
+     if not lst:
+         return ""
+-    return ",".join(lst)
++    return _LIST_DELIMITER.join(lst)
+ 
+ # User schemas
+ class UserBase(BaseModel):
+@@ -78,6 +87,15 @@ class ReminderResponse(ReminderBase):
+     class Config:
+         from_attributes = True
+ 
++# Scan schemas
++class ScanResponse(BaseModel):
++    medicine: MedicineResponse
++    reminders: List[ReminderResponse]
++    ai_confidence: float
++    allergy_conflict: bool
++    conflict_reason: Optional[str] = None
++
++
+ # Chat schemas
+ class ChatMessageBase(BaseModel):
+     text: str
+diff --git a/ios/Runner/Info.plist b/ios/Runner/Info.plist
+index 1b4ce8f..861b76a 100644
+--- a/ios/Runner/Info.plist
++++ b/ios/Runner/Info.plist
+@@ -26,6 +26,10 @@
+ 	<string>$(FLUTTER_BUILD_NUMBER)</string>
+ 	<key>LSRequiresIPhoneOS</key>
+ 	<true/>
++	<key>NSCameraUsageDescription</key>
++	<string>MediLens AI needs camera access to scan medicine labels and prescriptions.</string>
++	<key>NSPhotoLibraryUsageDescription</key>
++	<string>MediLens AI needs photo library access to analyze medicine labels from your gallery.</string>
+ 	<key>UIApplicationSceneManifest</key>
+ 	<dict>
+ 		<key>UIApplicationSupportsMultipleScenes</key>
+diff --git a/lib/providers/app_state.provider.dart b/lib/providers/app_state.provider.dart
+index ef198e2..7d6e7aa 100644
+--- a/lib/providers/app_state.provider.dart
++++ b/lib/providers/app_state.provider.dart
+@@ -1,4 +1,5 @@
+ import 'dart:async';
++import 'dart:io';
+ import 'package:flutter/foundation.dart';
+ import '../models/medicine.dart';
+ import '../models/reminder.dart';
+@@ -285,7 +286,7 @@ class AppStateProvider with ChangeNotifier {
+     } catch (e) {
+       debugPrint("API Chat error: $e. Falling back to simulated response.");
+       // Fallback local chatbot simulator
+-      Timer(const Duration(seconds: 1500), () {
++      Timer(const Duration(seconds: 1), () {
+         _isTypingResponse = false;
+         String responseText = "";
+ 
+@@ -308,108 +309,54 @@ class AppStateProvider with ChangeNotifier {
+     }
+   }
+ 
+-  // Simulate camera scan
+-  Future<Medicine> simulateScanningProcess() async {
++  // Real AI-powered medicine label scan.
++  // Uploads the captured/picked photo to POST /api/scan, where the backend
++  // calls Claude's vision model to read the label and cross-checks the
++  // result against the user's allergy profile. Throws on failure so the
++  // UI (scan_tab.dart) can show the real error instead of silently
++  // pretending the scan succeeded.
++  Future<Medicine> scanMedicineImage(File imageFile) async {
+     _isScanning = true;
+     notifyListeners();
+ 
+-    await Future.delayed(const Duration(seconds: 3));
+-
+-    final amoxicillin = Medicine(
+-      name: "Amoxicillin",
+-      dosage: "250 mg",
+-      frequency: "Three times daily",
+-      instructions: "Take with food to prevent stomach upset. Finish the full course.",
+-      imageAsset: "assets/images/medicine_details.png",
+-      scannedDate: DateTime.now(),
+-      sideEffects: const [
+-        "Nausea, vomiting, diarrhea",
+-        "Mild skin rash",
+-        "Abdominal discomfort",
+-      ],
+-      warnings: const [
+-        "ALLERGY WARNING: You are allergic to Penicillin. Amoxicillin is a penicillin derivative and may cause a severe reaction.",
+-        "Take at evenly spaced intervals.",
+-        "Store in a cool, dry place.",
+-      ],
+-      activeAllergiesConflict: true,
+-      timeList: const ["08:00 AM", "02:00 PM", "08:00 PM"],
+-    );
+-
+-    // 1. Add locally
+-    final alreadyAdded = _medicines.any((m) => m.name.toLowerCase() == "amoxicillin");
+-    if (!alreadyAdded) {
+-      _medicines.add(amoxicillin);
+-      _reminders.add(MedicationReminder(
+-        id: "rem_amox_1",
+-        medicineName: "Amoxicillin",
+-        dosage: "250 mg",
+-        time: "08:00 AM",
+-        isTaken: false,
+-        date: DateTime.now(),
+-      ));
+-      _reminders.add(MedicationReminder(
+-        id: "rem_amox_2",
+-        medicineName: "Amoxicillin",
+-        dosage: "250 mg",
+-        time: "02:00 PM",
+-        isTaken: false,
+-        date: DateTime.now(),
+-      ));
+-      _reminders.add(MedicationReminder(
+-        id: "rem_amox_3",
+-        medicineName: "Amoxicillin",
+-        dosage: "250 mg",
+-        time: "08:00 PM",
+-        isTaken: false,
+-        date: DateTime.now(),
+-      ));
+-    }
+-    _isScanning = false;
+-    notifyListeners();
+-
+-    // 2. Sync to backend REST API
+     try {
++      final res = await ApiService.scanMedicineImage(imageFile);
++      final medData = res['medicine'] as Map<String, dynamic>;
++      final remsData = (res['reminders'] as List<dynamic>? ?? []);
++
++      final scannedMedicine = Medicine(
++        name: medData['name'],
++        dosage: medData['dosage'],
++        frequency: medData['frequency'],
++        instructions: medData['instructions'],
++        imageAsset: medData['image_asset'],
++        scannedDate: DateTime.parse(medData['scanned_date']),
++        sideEffects: List<String>.from(medData['side_effects'] ?? []),
++        warnings: List<String>.from(medData['warnings'] ?? []),
++        activeAllergiesConflict: medData['active_allergies_conflict'] ?? false,
++        timeList: List<String>.from(medData['time_list'] ?? []),
++      );
++
++      final alreadyAdded = _medicines.any((m) => m.name.toLowerCase() == scannedMedicine.name.toLowerCase());
+       if (!alreadyAdded) {
+-        await ApiService.addMedicine({
+-          'name': "Amoxicillin",
+-          'dosage': "250 mg",
+-          'frequency': "Three times daily",
+-          'instructions': "Take with food to prevent stomach upset. Finish the full course.",
+-          'image_asset': "assets/images/medicine_details.png",
+-          'side_effects': ["Nausea, vomiting, diarrhea", "Mild skin rash", "Abdominal discomfort"],
+-          'warnings': ["ALLERGY WARNING: You are allergic to Penicillin. Amoxicillin is a penicillin derivative.", "Take at evenly spaced intervals."],
+-          'active_allergies_conflict': true,
+-          'time_list': ["08:00 AM", "02:00 PM", "08:00 PM"],
+-        });
+-
+-        await ApiService.addReminder({
+-          'id': "rem_amox_1",
+-          'medicine_name': "Amoxicillin",
+-          'dosage': "250 mg",
+-          'time': "08:00 AM",
+-          'is_taken': false,
+-        });
+-        await ApiService.addReminder({
+-          'id': "rem_amox_2",
+-          'medicine_name': "Amoxicillin",
+-          'dosage': "250 mg",
+-          'time': "02:00 PM",
+-          'is_taken': false,
+-        });
+-        await ApiService.addReminder({
+-          'id': "rem_amox_3",
+-          'medicine_name': "Amoxicillin",
+-          'dosage': "250 mg",
+-          'time': "08:00 PM",
+-          'is_taken': false,
+-        });
++        _medicines.add(scannedMedicine);
++        for (final item in remsData) {
++          _reminders.add(MedicationReminder(
++            id: item['id'],
++            medicineName: item['medicine_name'],
++            dosage: item['dosage'],
++            time: item['time'],
++            isTaken: item['is_taken'] ?? false,
++            date: DateTime.parse(item['date']),
++          ));
++        }
+       }
+-    } catch (e) {
+-      debugPrint("API Error syncing scanned medicine: $e");
+-    }
+ 
+-    return amoxicillin;
++      return scannedMedicine;
++    } finally {
++      _isScanning = false;
++      notifyListeners();
++    }
+   }
+ 
+   void updateWeight(String newWeight) {
+diff --git a/lib/screens/dashboard_tab.dart b/lib/screens/dashboard_tab.dart
+index 8a567e9..a65840d 100644
+--- a/lib/screens/dashboard_tab.dart
++++ b/lib/screens/dashboard_tab.dart
+@@ -3,6 +3,7 @@ import 'package:provider/provider.dart';
+ import '../theme/colors.dart';
+ import '../theme/styles.dart';
+ import '../providers/app_state.provider.dart';
++import '../widgets/medicine_image.dart';
+ import 'medicine_details_screen.dart';
+ 
+ class DashboardTab extends StatelessWidget {
+@@ -259,11 +260,9 @@ class DashboardTab extends StatelessWidget {
+                               ),
+                               child: ClipRRect(
+                                 borderRadius: BorderRadius.circular(AppStyles.radiusMd),
+-                                child: Image.asset(
+-                                  med.imageAsset,
++                                child: MedicineImage(
++                                  imageAsset: med.imageAsset,
+                                   fit: BoxFit.cover,
+-                                  errorBuilder: (context, error, stackTrace) =>
+-                                      const Icon(Icons.medication_rounded, color: AppColors.primary, size: 28),
+                                 ),
+                               ),
+                             ),
+diff --git a/lib/screens/medicine_details_screen.dart b/lib/screens/medicine_details_screen.dart
+index 1dc869b..0a59d14 100644
+--- a/lib/screens/medicine_details_screen.dart
++++ b/lib/screens/medicine_details_screen.dart
+@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
+ import '../models/medicine.dart';
+ import '../theme/colors.dart';
+ import '../theme/styles.dart';
++import '../widgets/medicine_image.dart';
+ 
+ class MedicineDetailsScreen extends StatelessWidget {
+   final Medicine medicine;
+@@ -25,7 +26,7 @@ class MedicineDetailsScreen extends StatelessWidget {
+                   decoration: BoxDecoration(
+                     color: AppColors.surfaceContainerLow,
+                     image: DecorationImage(
+-                      image: AssetImage(medicine.imageAsset),
++                      image: MedicineImage.provider(medicine.imageAsset),
+                       fit: BoxFit.cover,
+                       alignment: Alignment.center,
+                     ),
+diff --git a/lib/screens/scan_tab.dart b/lib/screens/scan_tab.dart
+index 1ef3ebb..ba3668a 100644
+--- a/lib/screens/scan_tab.dart
++++ b/lib/screens/scan_tab.dart
+@@ -1,5 +1,8 @@
++import 'dart:io';
+ import 'package:flutter/material.dart';
++import 'package:image_picker/image_picker.dart';
+ import 'package:provider/provider.dart';
++import '../services/api_service.dart';
+ import '../theme/colors.dart';
+ import '../theme/styles.dart';
+ import '../providers/app_state.provider.dart';
+@@ -15,6 +18,7 @@ class ScanTab extends StatefulWidget {
+ class _ScanTabState extends State<ScanTab> with SingleTickerProviderStateMixin {
+   late AnimationController _scannerAnimationController;
+   late Animation<double> _scannerPositionAnimation;
++  final ImagePicker _picker = ImagePicker();
+ 
+   @override
+   void initState() {
+@@ -35,65 +39,104 @@ class _ScanTabState extends State<ScanTab> with SingleTickerProviderStateMixin {
+     super.dispose();
+   }
+ 
+-  void _triggerScanSimulation(BuildContext context) async {
++  Future<void> _pickAndScan(BuildContext context, ImageSource source) async {
++    final XFile? picked;
++    try {
++      picked = await _picker.pickImage(source: source, imageQuality: 90, maxWidth: 1600);
++    } catch (e) {
++      // e.g. permission denied — surface it instead of pretending nothing happened.
++      if (context.mounted) {
++        _showErrorDialog(context, "Camera/Gallery access failed", e.toString());
++      }
++      return;
++    }
++    if (picked == null || !context.mounted) return; // user cancelled the picker
++
++    await _runScan(context, File(picked.path));
++  }
++
++  Future<void> _runScan(BuildContext context, File imageFile) async {
+     final state = Provider.of<AppStateProvider>(context, listen: false);
+ 
+-    // Show scanning progress modal
+     showDialog(
+       context: context,
+       barrierDismissible: false,
+-      builder: (context) {
+-        return Dialog(
+-          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(AppStyles.radiusXl)),
+-          backgroundColor: AppColors.surfaceContainerLowest,
+-          child: Padding(
+-            padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 32),
+-            child: Column(
+-              mainAxisSize: MainAxisSize.min,
+-              children: [
+-                const SizedBox(
+-                  width: 56,
+-                  height: 56,
+-                  child: CircularProgressIndicator(
+-                    strokeWidth: 3.5,
+-                    valueColor: AlwaysStoppedAnimation<Color>(AppColors.primary),
+-                  ),
+-                ),
+-                const SizedBox(height: 24),
+-                Text(
+-                  "Analyzing Label...",
+-                  style: AppStyles.titleMd.copyWith(fontWeight: FontWeight.w700, color: AppColors.onSurface),
+-                ),
+-                const SizedBox(height: 8),
+-                Text(
+-                  "OCR engine is digitizing text & checking profile allergies...",
+-                  style: AppStyles.bodyMd.copyWith(color: AppColors.onSurfaceVariant),
+-                  textAlign: TextAlign.center,
++      builder: (context) => Dialog(
++        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(AppStyles.radiusXl)),
++        backgroundColor: AppColors.surfaceContainerLowest,
++        child: Padding(
++          padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 32),
++          child: Column(
++            mainAxisSize: MainAxisSize.min,
++            children: [
++              const SizedBox(
++                width: 56,
++                height: 56,
++                child: CircularProgressIndicator(
++                  strokeWidth: 3.5,
++                  valueColor: AlwaysStoppedAnimation<Color>(AppColors.primary),
+                 ),
+-              ],
+-            ),
++              ),
++              const SizedBox(height: 24),
++              Text(
++                "Analyzing Label...",
++                style: AppStyles.titleMd.copyWith(fontWeight: FontWeight.w700, color: AppColors.onSurface),
++              ),
++              const SizedBox(height: 8),
++              Text(
++                "Claude AI is reading the label & checking your allergy profile...",
++                style: AppStyles.bodyMd.copyWith(color: AppColors.onSurfaceVariant),
++                textAlign: TextAlign.center,
++              ),
++            ],
+           ),
+-        );
+-      },
++        ),
++      ),
+     );
+ 
+-    // Run scanning logic
+-    final scannedMed = await state.simulateScanningProcess();
++    try {
++      final scannedMed = await state.scanMedicineImage(imageFile);
+ 
+-    // Close progress modal
+-    if (context.mounted) {
+-      Navigator.pop(context); // Close dialog
++      if (!context.mounted) return;
++      Navigator.pop(context); // close the analyzing dialog
+ 
+-      // Push to details screen
+       Navigator.push(
+         context,
+-        MaterialPageRoute(
+-          builder: (context) => MedicineDetailsScreen(medicine: scannedMed),
+-        ),
++        MaterialPageRoute(builder: (context) => MedicineDetailsScreen(medicine: scannedMed)),
++      );
++    } on ApiException catch (e) {
++      if (!context.mounted) return;
++      Navigator.pop(context);
++      _showErrorDialog(context, "Couldn't read this label", e.message);
++    } catch (e) {
++      if (!context.mounted) return;
++      Navigator.pop(context);
++      _showErrorDialog(
++        context,
++        "Scan failed",
++        "Couldn't reach the MediLens AI backend. Make sure the server is running and reachable at "
++            "${ApiService.baseUrl}.\n\nDetails: $e",
+       );
+     }
+   }
+ 
++  void _showErrorDialog(BuildContext context, String title, String message) {
++    showDialog(
++      context: context,
++      builder: (context) => AlertDialog(
++        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(AppStyles.radiusLg)),
++        title: Text(title, style: AppStyles.titleMd.copyWith(fontWeight: FontWeight.w700)),
++        content: Text(message, style: AppStyles.bodyMd),
++        actions: [
++          TextButton(
++            onPressed: () => Navigator.pop(context),
++            child: const Text("OK"),
++          ),
++        ],
++      ),
++    );
++  }
++
+   @override
+   Widget build(BuildContext context) {
+     final size = MediaQuery.of(context).size;
+@@ -102,7 +145,6 @@ class _ScanTabState extends State<ScanTab> with SingleTickerProviderStateMixin {
+       backgroundColor: Colors.black,
+       body: Stack(
+         children: [
+-          // Simulated camera frame image background (onboarding scan image serves as a nice mock)
+           Positioned.fill(
+             child: Opacity(
+               opacity: 0.45,
+@@ -112,13 +154,10 @@ class _ScanTabState extends State<ScanTab> with SingleTickerProviderStateMixin {
+               ),
+             ),
+           ),
+-
+-          // Main scanner camera mask / viewport overlay
+           Positioned.fill(
+             child: Column(
+               children: [
+                 const SizedBox(height: 60),
+-                // Header details
+                 Padding(
+                   padding: const EdgeInsets.symmetric(horizontal: AppStyles.paddingContainer),
+                   child: Row(
+@@ -141,7 +180,6 @@ class _ScanTabState extends State<ScanTab> with SingleTickerProviderStateMixin {
+                 ),
+                 const Spacer(),
+ 
+-                // Viewfinder container
+                 Container(
+                   width: size.width * 0.75,
+                   height: size.width * 0.75,
+@@ -151,13 +189,10 @@ class _ScanTabState extends State<ScanTab> with SingleTickerProviderStateMixin {
+                   ),
+                   child: Stack(
+                     children: [
+-                      // Viewfinder corner brackets (visual enhancement)
+                       _buildCornerBracket(top: 10, left: 10, isTop: true, isLeft: true),
+                       _buildCornerBracket(top: 10, right: 10, isTop: true, isLeft: false),
+                       _buildCornerBracket(bottom: 10, left: 10, isTop: false, isLeft: true),
+                       _buildCornerBracket(bottom: 10, right: 10, isTop: false, isLeft: false),
+-
+-                      // Moving active laser scanner line
+                       AnimatedBuilder(
+                         animation: _scannerPositionAnimation,
+                         builder: (context, child) {
+@@ -195,7 +230,6 @@ class _ScanTabState extends State<ScanTab> with SingleTickerProviderStateMixin {
+                 ),
+                 const Spacer(),
+ 
+-                // Actions area
+                 Container(
+                   width: double.infinity,
+                   padding: const EdgeInsets.symmetric(
+@@ -208,9 +242,9 @@ class _ScanTabState extends State<ScanTab> with SingleTickerProviderStateMixin {
+                   ),
+                   child: Column(
+                     children: [
+-                      // Document upload card option
++                      // Gallery / prescription photo upload
+                       InkWell(
+-                        onTap: () => _triggerScanSimulation(context),
++                        onTap: () => _pickAndScan(context, ImageSource.gallery),
+                         child: Container(
+                           padding: const EdgeInsets.symmetric(vertical: 12, horizontal: 16),
+                           decoration: BoxDecoration(
+@@ -224,7 +258,7 @@ class _ScanTabState extends State<ScanTab> with SingleTickerProviderStateMixin {
+                               Icon(Icons.description_rounded, color: Colors.white70),
+                               SizedBox(width: 12),
+                               Text(
+-                                "Upload Prescription PDF / Image",
++                                "Upload Prescription / Label Photo",
+                                 style: TextStyle(color: Colors.white, fontWeight: FontWeight.w600),
+                               ),
+                             ],
+@@ -233,9 +267,9 @@ class _ScanTabState extends State<ScanTab> with SingleTickerProviderStateMixin {
+                       ),
+                       const SizedBox(height: 20),
+ 
+-                      // Trigger Action button
++                      // Live camera capture -> real AI scan
+                       GestureDetector(
+-                        onTap: () => _triggerScanSimulation(context),
++                        onTap: () => _pickAndScan(context, ImageSource.camera),
+                         child: Container(
+                           width: 72,
+                           height: 72,
+@@ -261,7 +295,6 @@ class _ScanTabState extends State<ScanTab> with SingleTickerProviderStateMixin {
+                   ),
+                 ),
+ 
+-                // Spacing for floating bottom nav shell
+                 const SizedBox(height: 88),
+               ],
+             ),
+diff --git a/lib/services/api_service.dart b/lib/services/api_service.dart
+index ee0ea82..9fd6a67 100644
+--- a/lib/services/api_service.dart
++++ b/lib/services/api_service.dart
+@@ -1,106 +1,152 @@
+ import 'dart:convert';
++import 'dart:io';
++import 'package:flutter/foundation.dart' show kIsWeb;
+ import 'package:http/http.dart' as http;
++import 'package:http_parser/http_parser.dart' show MediaType;
++
++/// Thrown for any non-2xx backend response, carrying the server's
++/// human-readable `detail` message (FastAPI's standard error shape)
++/// so the UI can show it directly instead of a generic "something broke".
++class ApiException implements Exception {
++  final int statusCode;
++  final String message;
++  ApiException(this.statusCode, this.message);
++
++  @override
++  String toString() => message;
++}
+ 
+ class ApiService {
+-  // Use localhost since we are running on a local development environment.
+-  static const String baseUrl = 'http://localhost:8000/api';
++  /// Resolves the backend base URL per platform:
++  /// - Override anytime with `--dart-define=API_BASE_URL=http://192.168.1.20:8000/api`
++  ///   (required when testing on a *physical* device — localhost then means the phone itself).
++  /// - Android emulator can't see the host machine's localhost, it must use 10.0.2.2.
++  /// - iOS simulator / desktop / web dev server can use localhost directly.
++  static String get baseUrl {
++    const override = String.fromEnvironment('API_BASE_URL');
++    if (override.isNotEmpty) return override;
++
++    if (!kIsWeb && Platform.isAndroid) {
++      return 'http://10.0.2.2:8000/api';
++    }
++    return 'http://localhost:8000/api';
++  }
++
++  /// Host root without the `/api` suffix, used to resolve media paths
++  /// like `/uploads/xxx.jpg` that the backend returns for scanned photos.
++  static String get mediaBaseUrl => baseUrl.replaceFirst(RegExp(r'/api$'), '');
++
++  /// A medicine's `imageAsset` is either a bundled Flutter asset path
++  /// (e.g. "assets/images/medicine_details.png") for seed/demo data, or a
++  /// server-relative upload path (e.g. "/uploads/scan_ab12.jpg") for a
++  /// real AI-scanned photo. This resolves the latter into a full URL.
++  static bool isNetworkImage(String imageAsset) =>
++      imageAsset.startsWith('/uploads') || imageAsset.startsWith('http');
++
++  static String resolveImageUrl(String imageAsset) {
++    if (imageAsset.startsWith('http')) return imageAsset;
++    return '$mediaBaseUrl$imageAsset';
++  }
+ 
+   static Map<String, String> get _headers => {
+         'Content-Type': 'application/json',
+       };
+ 
+-  // Fetch User Profile
+-  static Future<Map<String, dynamic>> fetchUser() async {
+-    final response = await http.get(Uri.parse('$baseUrl/user'), headers: _headers);
+-    if (response.statusCode == 200) {
++  static dynamic _decodeOrThrow(http.Response response) {
++    if (response.statusCode >= 200 && response.statusCode < 300) {
+       return json.decode(response.body);
+-    } else {
+-      throw Exception('Failed to load user profile: ${response.statusCode}');
+     }
++    String message = 'Request failed (${response.statusCode})';
++    try {
++      final body = json.decode(response.body);
++      if (body is Map && body['detail'] != null) {
++        message = body['detail'].toString();
++      }
++    } catch (_) {
++      // Response wasn't JSON (e.g. a raw 500 HTML page) — keep the default message.
++    }
++    throw ApiException(response.statusCode, message);
++  }
++
++  static Future<Map<String, dynamic>> fetchUser() async {
++    final response = await http.get(Uri.parse('$baseUrl/user'), headers: _headers);
++    return _decodeOrThrow(response);
+   }
+ 
+-  // Fetch all medications
+   static Future<List<dynamic>> fetchMedicines() async {
+     final response = await http.get(Uri.parse('$baseUrl/medicines'), headers: _headers);
+-    if (response.statusCode == 200) {
+-      return json.decode(response.body);
+-    } else {
+-      throw Exception('Failed to load medicines: ${response.statusCode}');
+-    }
++    return _decodeOrThrow(response);
+   }
+ 
+-  // Add a medication
+   static Future<Map<String, dynamic>> addMedicine(Map<String, dynamic> data) async {
+     final response = await http.post(
+       Uri.parse('$baseUrl/medicines'),
+       headers: _headers,
+       body: json.encode(data),
+     );
+-    if (response.statusCode == 200) {
+-      return json.decode(response.body);
+-    } else {
+-      throw Exception('Failed to add medicine: ${response.statusCode}');
+-    }
++    return _decodeOrThrow(response);
+   }
+ 
+-  // Fetch all reminders
+   static Future<List<dynamic>> fetchReminders() async {
+     final response = await http.get(Uri.parse('$baseUrl/reminders'), headers: _headers);
+-    if (response.statusCode == 200) {
+-      return json.decode(response.body);
+-    } else {
+-      throw Exception('Failed to load reminders: ${response.statusCode}');
+-    }
++    return _decodeOrThrow(response);
+   }
+ 
+-  // Add a reminder
+   static Future<Map<String, dynamic>> addReminder(Map<String, dynamic> data) async {
+     final response = await http.post(
+       Uri.parse('$baseUrl/reminders'),
+       headers: _headers,
+       body: json.encode(data),
+     );
+-    if (response.statusCode == 200) {
+-      return json.decode(response.body);
+-    } else {
+-      throw Exception('Failed to add reminder: ${response.statusCode}');
+-    }
++    return _decodeOrThrow(response);
+   }
+ 
+-  // Toggle reminder taken status
+   static Future<Map<String, dynamic>> toggleReminder(String reminderId) async {
+     final response = await http.patch(
+       Uri.parse('$baseUrl/reminders/$reminderId/toggle'),
+       headers: _headers,
+     );
+-    if (response.statusCode == 200) {
+-      return json.decode(response.body);
+-    } else {
+-      throw Exception('Failed to toggle reminder: ${response.statusCode}');
+-    }
++    return _decodeOrThrow(response);
+   }
+ 
+-  // Fetch Chat History
+   static Future<List<dynamic>> fetchChatHistory() async {
+     final response = await http.get(Uri.parse('$baseUrl/chat'), headers: _headers);
+-    if (response.statusCode == 200) {
+-      return json.decode(response.body);
+-    } else {
+-      throw Exception('Failed to load chat history: ${response.statusCode}');
+-    }
++    return _decodeOrThrow(response);
+   }
+ 
+-  // Send a chat message and receive AI response
+   static Future<Map<String, dynamic>> sendChatMessage(String text) async {
+     final response = await http.post(
+       Uri.parse('$baseUrl/chat'),
+       headers: _headers,
+       body: json.encode({'text': text}),
+     );
+-    if (response.statusCode == 200) {
+-      return json.decode(response.body);
+-    } else {
+-      throw Exception('Failed to send message: ${response.statusCode}');
+-    }
++    return _decodeOrThrow(response);
++  }
++
++  /// Uploads a photo of a medicine label/prescription and returns the
++  /// AI-extracted result (name, dosage, warnings, allergy conflict, etc.)
++  /// as produced by POST /api/scan.
++  static Future<Map<String, dynamic>> scanMedicineImage(File imageFile) async {
++    final uri = Uri.parse('$baseUrl/scan');
++    final request = http.MultipartRequest('POST', uri);
++
++    final ext = imageFile.path.split('.').last.toLowerCase();
++    final mimeSubtype = (ext == 'jpg') ? 'jpeg' : ext;
++
++    request.files.add(
++      await http.MultipartFile.fromPath(
++        'file',
++        imageFile.path,
++        filename: 'scan.$ext',
++        contentType: MediaType('image', mimeSubtype),
++      ),
++    );
++
++    final streamedResponse = await request.send().timeout(
++          const Duration(seconds: 45),
++          onTimeout: () => throw ApiException(408, 'The AI scan timed out. Please try again.'),
++        );
++    final response = await http.Response.fromStream(streamedResponse);
++    return _decodeOrThrow(response);
+   }
+ }
+diff --git a/lib/widgets/medicine_image.dart b/lib/widgets/medicine_image.dart
+new file mode 100644
+index 0000000..a03c217
+--- /dev/null
++++ b/lib/widgets/medicine_image.dart
+@@ -0,0 +1,41 @@
++import 'package:flutter/material.dart';
++import '../services/api_service.dart';
++
++/// Renders a [Medicine.imageAsset] regardless of whether it's a bundled
++/// Flutter asset (seed/demo data) or a real photo the backend stored after
++/// an AI scan (`/uploads/...`). Centralizing this avoids every screen
++/// re-implementing the asset-vs-network branch (and getting it wrong).
++class MedicineImage extends StatelessWidget {
++  final String imageAsset;
++  final BoxFit fit;
++
++  const MedicineImage({super.key, required this.imageAsset, this.fit = BoxFit.cover});
++
++  @override
++  Widget build(BuildContext context) {
++    if (ApiService.isNetworkImage(imageAsset)) {
++      return Image.network(
++        ApiService.resolveImageUrl(imageAsset),
++        fit: fit,
++        loadingBuilder: (context, child, progress) {
++          if (progress == null) return child;
++          return const Center(child: CircularProgressIndicator(strokeWidth: 2));
++        },
++        errorBuilder: (context, error, stackTrace) => Image.asset(
++          "assets/images/medicine_details.png",
++          fit: fit,
++        ),
++      );
++    }
++    return Image.asset(imageAsset, fit: fit);
++  }
++
++  /// Same resolution logic, exposed as a [DecorationImage] for screens
++  /// that build their photo via a BoxDecoration instead of a widget tree.
++  static ImageProvider provider(String imageAsset) {
++    if (ApiService.isNetworkImage(imageAsset)) {
++      return NetworkImage(ApiService.resolveImageUrl(imageAsset));
++    }
++    return AssetImage(imageAsset);
++  }
++}
+diff --git a/pubspec.yaml b/pubspec.yaml
+index 89acebd..81b8f3f 100644
+--- a/pubspec.yaml
++++ b/pubspec.yaml
+@@ -37,6 +37,8 @@ dependencies:
+   provider: ^6.1.2
+   google_fonts: ^6.2.1
+   http: ^1.2.1
++  http_parser: ^4.0.2
++  image_picker: ^1.1.2
+ 
+ dev_dependencies:
+   flutter_test:
+-- 
+2.43.0
+
