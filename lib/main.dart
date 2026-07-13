@@ -1,8 +1,9 @@
 import 'package:flutter/material.dart';
+import 'package:medilens_ai/app/medilens_app.dart';
+import 'package:medilens_ai/app/state/app_state_provider.dart';
 import 'package:provider/provider.dart';
-import 'providers/app_state.provider.dart';
-import 'theme/theme.dart';
-import 'screens/splash_screen.dart';
+
+export 'package:medilens_ai/app/medilens_app.dart';
 
 void main() {
   runApp(
@@ -11,18 +12,4 @@ void main() {
       child: const MediLensApp(),
     ),
   );
-}
-
-class MediLensApp extends StatelessWidget {
-  const MediLensApp({super.key});
-
-  @override
-  Widget build(BuildContext context) {
-    return MaterialApp(
-      title: 'MediLens AI',
-      debugShowCheckedModeBanner: false,
-      theme: AppTheme.lightTheme,
-      home: const SplashScreen(),
-    );
-  }
 }

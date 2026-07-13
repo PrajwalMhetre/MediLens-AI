@@ -1,3 +1,5 @@
+import os
+
 from fastapi import FastAPI, Depends, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from sqlalchemy.orm import Session
@@ -8,15 +10,23 @@ import models
 import schemas
 from schemas import str_to_list, list_to_str
 
+def get_cors_origins():
+    raw_origins = os.getenv(
+        "CORS_ORIGINS",
+        "http://localhost:3000,http://localhost:8080,http://localhost:5173",
+    )
+    return [origin.strip() for origin in raw_origins.split(",") if origin.strip()]
+
+
 # Create Database tables
 Base.metadata.create_all(bind=engine)
 
-app = FastAPI(title="MediLens AI Backend")
+app = FastAPI(title=os.getenv("API_TITLE", "MediLens AI Backend"))
 
 # Add CORS Middleware to support Flutter web/simulator requests
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
+    allow_origins=get_cors_origins(),
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],

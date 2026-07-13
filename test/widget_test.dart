@@ -1,4 +1,4 @@
-// This is a basic Flutter widget test.
+// This is a basic Flutter widget smoke test.
 //
 // To perform an interaction with a widget in your test, use the WidgetTester
 // utility in the flutter_test package. For example, you can send tap and scroll
@@ -8,14 +8,19 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 
-import 'package:medilens_ai/main.dart';
+import 'package:medilens_ai/app/medilens_app.dart';
 
 void main() {
-  testWidgets('Counter increments smoke test', (WidgetTester tester) async {
+  testWidgets('MediLens app renders splash shell', (WidgetTester tester) async {
     // Build our app and trigger a frame.
     await tester.pumpWidget(const MediLensApp());
 
     // Verify that the logo search scope is present
     expect(find.byIcon(Icons.center_focus_strong_rounded), findsOneWidget);
+
+    await tester.pump(const Duration(seconds: 3));
+    await tester.pumpAndSettle();
+
+    expect(find.text('Scan Medicine'), findsOneWidget);
   });
 }
