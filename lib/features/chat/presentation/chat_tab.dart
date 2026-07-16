@@ -14,6 +14,7 @@ class ChatTab extends StatefulWidget {
 class _ChatTabState extends State<ChatTab> {
   final TextEditingController _messageController = TextEditingController();
   final ScrollController _scrollController = ScrollController();
+  int _previousMessageCount = 0;
 
   @override
   void dispose() {
@@ -24,11 +25,15 @@ class _ChatTabState extends State<ChatTab> {
 
   void _scrollToBottom() {
     if (_scrollController.hasClients) {
-      _scrollController.animateTo(
-        _scrollController.position.maxScrollExtent,
-        duration: const Duration(milliseconds: 300),
-        curve: Curves.easeOut,
-      );
+      Future.delayed(const Duration(milliseconds: 100), () {
+        if (_scrollController.hasClients) {
+          _scrollController.animateTo(
+            _scrollController.position.maxScrollExtent,
+            duration: const Duration(milliseconds: 300),
+            curve: Curves.easeOut,
+          );
+        }
+      });
     }
   }
 
@@ -44,7 +49,14 @@ class _ChatTabState extends State<ChatTab> {
   @override
   Widget build(BuildContext context) {
     final state = Provider.of<AppStateProvider>(context);
-    // Trigger scroll bottom when typing status changes
+
+    // Auto-scroll when new messages arrive (both user and AI)
+    if (state.chatMessages.length != _previousMessageCount) {
+      _previousMessageCount = state.chatMessages.length;
+      WidgetsBinding.instance.addPostFrameCallback((_) => _scrollToBottom());
+    }
+
+    // Also scroll when typing status changes
     if (state.isTypingResponse) {
       WidgetsBinding.instance.addPostFrameCallback((_) => _scrollToBottom());
     }
@@ -118,7 +130,9 @@ class _ChatTabState extends State<ChatTab> {
                           ),
                           const SizedBox(width: 6),
                           Text(
-                            "Online & Analyzing",
+                            state.isTypingResponse
+                                ? "Typing..."
+                                : "Online & Analyzing",
                             style: AppStyles.labelSm.copyWith(
                               fontSize: 10,
                               color: AppColors.onSurfaceVariant.withValues(
@@ -144,7 +158,14 @@ class _ChatTabState extends State<ChatTab> {
                     const SizedBox(height: 16),
                 itemBuilder: (context, index) {
                   final msg = state.chatMessages[index];
-                  return _buildMessageBubble(msg.text, msg.isUser);
+                  return _AnimatedMessageBubble(
+                    key: ValueKey('msg_${msg.timestamp.millisecondsSinceEpoch}_$index'),
+                    text: msg.text,
+                    isUser: msg.isUser,
+                    // Animate only the last 2 messages (newly added)
+                    shouldAnimate:
+                        index >= state.chatMessages.length - 2,
+                  );
                 },
               ),
             ),
@@ -168,7 +189,7 @@ class _ChatTabState extends State<ChatTab> {
                 ),
               ),
 
-            // Typing Indicator
+            // Typing Indicator — bouncing dots
             if (state.isTypingResponse)
               Padding(
                 padding: const EdgeInsets.symmetric(
@@ -196,39 +217,19 @@ class _ChatTabState extends State<ChatTab> {
                     Container(
                       padding: const EdgeInsets.symmetric(
                         horizontal: 16,
-                        vertical: 10,
+                        vertical: 12,
                       ),
                       decoration: BoxDecoration(
                         color: AppColors.surfaceContainerLowest,
-                        borderRadius: BorderRadius.circular(AppStyles.radiusMd),
+                        borderRadius:
+                            BorderRadius.circular(AppStyles.radiusMd),
                         border: Border.all(
                           color: AppColors.outlineVariant.withValues(
                             alpha: 0.3,
                           ),
                         ),
                       ),
-                      child: Row(
-                        mainAxisSize: MainAxisSize.min,
-                        children: [
-                          Text(
-                            "AI Pharmacist is analyzing",
-                            style: AppStyles.bodyMd.copyWith(
-                              color: AppColors.onSurfaceVariant,
-                            ),
-                          ),
-                          const SizedBox(width: 8),
-                          const SizedBox(
-                            width: 10,
-                            height: 10,
-                            child: CircularProgressIndicator(
-                              strokeWidth: 1.5,
-                              valueColor: AlwaysStoppedAnimation<Color>(
-                                AppColors.outline,
-                              ),
-                            ),
-                          ),
-                        ],
-                      ),
+                      child: const _BouncingDotsIndicator(),
                     ),
                   ],
                 ),
@@ -258,7 +259,8 @@ class _ChatTabState extends State<ChatTab> {
                         color: AppColors.surfaceContainerLow.withValues(
                           alpha: 0.6,
                         ),
-                        borderRadius: BorderRadius.circular(AppStyles.radiusMd),
+                        borderRadius:
+                            BorderRadius.circular(AppStyles.radiusMd),
                       ),
                       child: TextField(
                         controller: _messageController,
@@ -302,87 +304,6 @@ class _ChatTabState extends State<ChatTab> {
     );
   }
 
-  Widget _buildMessageBubble(String text, bool isUser) {
-    final bgColor = isUser
-        ? AppColors.primary
-        : AppColors.surfaceContainerLowest;
-    final textColor = isUser ? Colors.white : AppColors.onSurface;
-    final alignment = isUser
-        ? CrossAxisAlignment.end
-        : CrossAxisAlignment.start;
-    final bubbleRadius = isUser
-        ? const BorderRadius.only(
-            topLeft: Radius.circular(AppStyles.radiusLg),
-            topRight: Radius.circular(AppStyles.radiusLg),
-            bottomLeft: Radius.circular(AppStyles.radiusLg),
-          )
-        : const BorderRadius.only(
-            topLeft: Radius.circular(AppStyles.radiusLg),
-            topRight: Radius.circular(AppStyles.radiusLg),
-            bottomRight: Radius.circular(AppStyles.radiusLg),
-          );
-
-    return Column(
-      crossAxisAlignment: alignment,
-      children: [
-        Row(
-          mainAxisAlignment: isUser
-              ? MainAxisAlignment.end
-              : MainAxisAlignment.start,
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            if (!isUser) ...[
-              Container(
-                margin: const EdgeInsets.only(top: 4),
-                width: 28,
-                height: 28,
-                decoration: BoxDecoration(
-                  color: AppColors.primaryContainer.withValues(alpha: 0.12),
-                  shape: BoxShape.circle,
-                ),
-                child: const Center(
-                  child: Icon(
-                    Icons.support_agent_rounded,
-                    color: AppColors.primary,
-                    size: 16,
-                  ),
-                ),
-              ),
-              const SizedBox(width: 12),
-            ],
-            Flexible(
-              child: Container(
-                padding: const EdgeInsets.symmetric(
-                  horizontal: 16,
-                  vertical: 12,
-                ),
-                decoration: BoxDecoration(
-                  color: bgColor,
-                  borderRadius: bubbleRadius,
-                  border: isUser
-                      ? null
-                      : Border.all(
-                          color: AppColors.outlineVariant.withValues(
-                            alpha: 0.3,
-                          ),
-                        ),
-                  boxShadow: AppStyles.level1Shadow,
-                ),
-                child: Text(
-                  text,
-                  style: AppStyles.bodyMd.copyWith(
-                    color: textColor,
-                    height: 1.4,
-                  ),
-                ),
-              ),
-            ),
-          ],
-        ),
-      ],
-    );
-  }
-
   Widget _buildSuggestionChip(String text) {
     return ActionChip(
       label: Text(
@@ -398,6 +319,225 @@ class _ChatTabState extends State<ChatTab> {
       side: BorderSide(color: AppColors.primary.withValues(alpha: 0.2)),
       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(100)),
       onPressed: () => _onSend(text),
+    );
+  }
+}
+
+/// Animated message bubble with slide-up + fade-in entrance
+class _AnimatedMessageBubble extends StatefulWidget {
+  final String text;
+  final bool isUser;
+  final bool shouldAnimate;
+
+  const _AnimatedMessageBubble({
+    super.key,
+    required this.text,
+    required this.isUser,
+    this.shouldAnimate = true,
+  });
+
+  @override
+  State<_AnimatedMessageBubble> createState() => _AnimatedMessageBubbleState();
+}
+
+class _AnimatedMessageBubbleState extends State<_AnimatedMessageBubble>
+    with SingleTickerProviderStateMixin {
+  late AnimationController _controller;
+  late Animation<double> _fadeIn;
+  late Animation<Offset> _slideIn;
+
+  @override
+  void initState() {
+    super.initState();
+    _controller = AnimationController(
+      vsync: this,
+      duration: const Duration(milliseconds: 350),
+    );
+    _fadeIn = CurvedAnimation(parent: _controller, curve: Curves.easeOut);
+    _slideIn = Tween<Offset>(
+      begin: const Offset(0, 0.15),
+      end: Offset.zero,
+    ).animate(CurvedAnimation(
+      parent: _controller,
+      curve: Curves.easeOutCubic,
+    ));
+
+    if (widget.shouldAnimate) {
+      _controller.forward();
+    } else {
+      _controller.value = 1.0;
+    }
+  }
+
+  @override
+  void dispose() {
+    _controller.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final bgColor = widget.isUser
+        ? AppColors.primary
+        : AppColors.surfaceContainerLowest;
+    final textColor = widget.isUser ? Colors.white : AppColors.onSurface;
+    final alignment = widget.isUser
+        ? CrossAxisAlignment.end
+        : CrossAxisAlignment.start;
+    final bubbleRadius = widget.isUser
+        ? const BorderRadius.only(
+            topLeft: Radius.circular(AppStyles.radiusLg),
+            topRight: Radius.circular(AppStyles.radiusLg),
+            bottomLeft: Radius.circular(AppStyles.radiusLg),
+          )
+        : const BorderRadius.only(
+            topLeft: Radius.circular(AppStyles.radiusLg),
+            topRight: Radius.circular(AppStyles.radiusLg),
+            bottomRight: Radius.circular(AppStyles.radiusLg),
+          );
+
+    return FadeTransition(
+      opacity: _fadeIn,
+      child: SlideTransition(
+        position: _slideIn,
+        child: Column(
+          crossAxisAlignment: alignment,
+          children: [
+            Row(
+              mainAxisAlignment: widget.isUser
+                  ? MainAxisAlignment.end
+                  : MainAxisAlignment.start,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                if (!widget.isUser) ...[
+                  Container(
+                    margin: const EdgeInsets.only(top: 4),
+                    width: 28,
+                    height: 28,
+                    decoration: BoxDecoration(
+                      color:
+                          AppColors.primaryContainer.withValues(alpha: 0.12),
+                      shape: BoxShape.circle,
+                    ),
+                    child: const Center(
+                      child: Icon(
+                        Icons.support_agent_rounded,
+                        color: AppColors.primary,
+                        size: 16,
+                      ),
+                    ),
+                  ),
+                  const SizedBox(width: 12),
+                ],
+                Flexible(
+                  child: Container(
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 16,
+                      vertical: 12,
+                    ),
+                    decoration: BoxDecoration(
+                      color: bgColor,
+                      borderRadius: bubbleRadius,
+                      border: widget.isUser
+                          ? null
+                          : Border.all(
+                              color: AppColors.outlineVariant.withValues(
+                                alpha: 0.3,
+                              ),
+                            ),
+                      boxShadow: AppStyles.level1Shadow,
+                    ),
+                    child: Text(
+                      widget.text,
+                      style: AppStyles.bodyMd.copyWith(
+                        color: textColor,
+                        height: 1.4,
+                      ),
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+/// Three bouncing dots typing indicator
+class _BouncingDotsIndicator extends StatefulWidget {
+  const _BouncingDotsIndicator();
+
+  @override
+  State<_BouncingDotsIndicator> createState() => _BouncingDotsIndicatorState();
+}
+
+class _BouncingDotsIndicatorState extends State<_BouncingDotsIndicator>
+    with TickerProviderStateMixin {
+  late List<AnimationController> _controllers;
+  late List<Animation<double>> _animations;
+
+  @override
+  void initState() {
+    super.initState();
+    _controllers = List.generate(3, (i) {
+      return AnimationController(
+        vsync: this,
+        duration: const Duration(milliseconds: 600),
+      );
+    });
+
+    _animations = _controllers.map((c) {
+      return Tween<double>(begin: 0.0, end: -6.0).animate(
+        CurvedAnimation(parent: c, curve: Curves.easeInOut),
+      );
+    }).toList();
+
+    // Stagger the dots
+    for (var i = 0; i < 3; i++) {
+      Future.delayed(Duration(milliseconds: i * 180), () {
+        if (mounted) {
+          _controllers[i].repeat(reverse: true);
+        }
+      });
+    }
+  }
+
+  @override
+  void dispose() {
+    for (final c in _controllers) {
+      c.dispose();
+    }
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Row(
+      mainAxisSize: MainAxisSize.min,
+      children: List.generate(3, (i) {
+        return AnimatedBuilder(
+          animation: _animations[i],
+          builder: (context, child) {
+            return Container(
+              margin: const EdgeInsets.symmetric(horizontal: 3),
+              child: Transform.translate(
+                offset: Offset(0, _animations[i].value),
+                child: child,
+              ),
+            );
+          },
+          child: Container(
+            width: 8,
+            height: 8,
+            decoration: BoxDecoration(
+              color: AppColors.outline.withValues(alpha: 0.6),
+              shape: BoxShape.circle,
+            ),
+          ),
+        );
+      }),
     );
   }
 }

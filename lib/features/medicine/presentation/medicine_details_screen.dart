@@ -16,18 +16,21 @@ class MedicineDetailsScreen extends StatelessWidget {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            // Top Image Header area
+            // Top Image Header area with Hero animation
             Stack(
               children: [
-                Container(
-                  height: 260,
-                  width: double.infinity,
-                  decoration: BoxDecoration(
-                    color: AppColors.surfaceContainerLow,
-                    image: DecorationImage(
-                      image: AssetImage(medicine.imageAsset),
-                      fit: BoxFit.cover,
-                      alignment: Alignment.center,
+                Hero(
+                  tag: 'med_image_${medicine.name}',
+                  child: Container(
+                    height: 260,
+                    width: double.infinity,
+                    decoration: BoxDecoration(
+                      color: AppColors.surfaceContainerLow,
+                      image: DecorationImage(
+                        image: AssetImage(medicine.imageAsset),
+                        fit: BoxFit.cover,
+                        alignment: Alignment.center,
+                      ),
                     ),
                   ),
                 ),
@@ -120,64 +123,9 @@ class MedicineDetailsScreen extends StatelessWidget {
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  // Allergy conflict warning card (HIGH VISIBILITY RED BANNER)
+                  // Allergy conflict warning card with pulse animation
                   if (medicine.activeAllergiesConflict) ...[
-                    Container(
-                      padding: const EdgeInsets.all(16),
-                      decoration: BoxDecoration(
-                        color: AppColors.errorContainer,
-                        borderRadius: BorderRadius.circular(AppStyles.radiusLg),
-                        border: Border.all(
-                          color: AppColors.error.withValues(alpha: 0.5),
-                        ),
-                      ),
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Row(
-                            children: [
-                              const Icon(
-                                Icons.report_problem_rounded,
-                                color: AppColors.error,
-                                size: 24,
-                              ),
-                              const SizedBox(width: 12),
-                              Expanded(
-                                child: Text(
-                                  "ALLERGY CONFLICT DETECTED",
-                                  style: AppStyles.titleMd.copyWith(
-                                    fontSize: 15,
-                                    color: AppColors.onErrorContainer,
-                                    fontWeight: FontWeight.w800,
-                                    letterSpacing: 0.5,
-                                  ),
-                                ),
-                              ),
-                            ],
-                          ),
-                          const SizedBox(height: 10),
-                          Text(
-                            "You are allergic to Penicillin. ${medicine.name} is a penicillin derivative and taking it may trigger a severe allergic reaction.",
-                            style: AppStyles.bodyMd.copyWith(
-                              color: AppColors.onErrorContainer,
-                              height: 1.4,
-                              fontWeight: FontWeight.w600,
-                            ),
-                          ),
-                          const SizedBox(height: 8),
-                          Text(
-                            "CRITICAL ACTION: Do NOT ingest this medication. Contact your health provider immediately for an alternative prescription.",
-                            style: AppStyles.bodyMd.copyWith(
-                              color: AppColors.onErrorContainer.withValues(
-                                alpha: 0.85,
-                              ),
-                              fontSize: 12,
-                              fontStyle: FontStyle.italic,
-                            ),
-                          ),
-                        ],
-                      ),
-                    ),
+                    _PulsingAllergyWarning(medicine: medicine),
                     const SizedBox(height: 24),
                   ],
 
@@ -194,9 +142,11 @@ class MedicineDetailsScreen extends StatelessWidget {
                     padding: const EdgeInsets.all(16),
                     decoration: BoxDecoration(
                       color: AppColors.surfaceContainerLowest,
-                      borderRadius: BorderRadius.circular(AppStyles.radiusLg),
+                      borderRadius:
+                          BorderRadius.circular(AppStyles.radiusLg),
                       border: Border.all(
-                        color: AppColors.outlineVariant.withValues(alpha: 0.3),
+                        color:
+                            AppColors.outlineVariant.withValues(alpha: 0.3),
                       ),
                     ),
                     child: Column(
@@ -294,7 +244,8 @@ class MedicineDetailsScreen extends StatelessWidget {
               Text(
                 label,
                 style: AppStyles.labelSm.copyWith(
-                  color: AppColors.onSurfaceVariant.withValues(alpha: 0.6),
+                  color:
+                      AppColors.onSurfaceVariant.withValues(alpha: 0.6),
                   fontSize: 10,
                 ),
               ),
@@ -347,7 +298,8 @@ class MedicineDetailsScreen extends StatelessWidget {
           ),
           children: [
             Padding(
-              padding: const EdgeInsets.only(left: 20, right: 20, bottom: 16),
+              padding:
+                  const EdgeInsets.only(left: 20, right: 20, bottom: 16),
               child: Column(
                 children: items.map((item) {
                   return Padding(
@@ -382,6 +334,114 @@ class MedicineDetailsScreen extends StatelessWidget {
             ),
           ],
         ),
+      ),
+    );
+  }
+}
+
+/// Pulsing allergy warning banner for critical visibility
+class _PulsingAllergyWarning extends StatefulWidget {
+  final Medicine medicine;
+  const _PulsingAllergyWarning({required this.medicine});
+
+  @override
+  State<_PulsingAllergyWarning> createState() =>
+      _PulsingAllergyWarningState();
+}
+
+class _PulsingAllergyWarningState extends State<_PulsingAllergyWarning>
+    with SingleTickerProviderStateMixin {
+  late AnimationController _pulseController;
+  late Animation<double> _pulseAnim;
+
+  @override
+  void initState() {
+    super.initState();
+    _pulseController = AnimationController(
+      vsync: this,
+      duration: const Duration(milliseconds: 1500),
+    );
+    _pulseAnim = Tween<double>(begin: 0.3, end: 0.7).animate(
+      CurvedAnimation(parent: _pulseController, curve: Curves.easeInOut),
+    );
+    _pulseController.repeat(reverse: true);
+  }
+
+  @override
+  void dispose() {
+    _pulseController.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return AnimatedBuilder(
+      animation: _pulseAnim,
+      builder: (context, child) {
+        return Container(
+          padding: const EdgeInsets.all(16),
+          decoration: BoxDecoration(
+            color: AppColors.errorContainer,
+            borderRadius: BorderRadius.circular(AppStyles.radiusLg),
+            border: Border.all(
+              color: AppColors.error.withValues(alpha: _pulseAnim.value),
+              width: 2,
+            ),
+            boxShadow: [
+              BoxShadow(
+                color: AppColors.error.withValues(
+                    alpha: _pulseAnim.value * 0.2),
+                blurRadius: 16,
+                spreadRadius: 2,
+              ),
+            ],
+          ),
+          child: child,
+        );
+      },
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              const Icon(
+                Icons.report_problem_rounded,
+                color: AppColors.error,
+                size: 24,
+              ),
+              const SizedBox(width: 12),
+              Expanded(
+                child: Text(
+                  "ALLERGY CONFLICT DETECTED",
+                  style: AppStyles.titleMd.copyWith(
+                    fontSize: 15,
+                    color: AppColors.onErrorContainer,
+                    fontWeight: FontWeight.w800,
+                    letterSpacing: 0.5,
+                  ),
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 10),
+          Text(
+            "You are allergic to Penicillin. ${widget.medicine.name} is a penicillin derivative and taking it may trigger a severe allergic reaction.",
+            style: AppStyles.bodyMd.copyWith(
+              color: AppColors.onErrorContainer,
+              height: 1.4,
+              fontWeight: FontWeight.w600,
+            ),
+          ),
+          const SizedBox(height: 8),
+          Text(
+            "CRITICAL ACTION: Do NOT ingest this medication. Contact your health provider immediately for an alternative prescription.",
+            style: AppStyles.bodyMd.copyWith(
+              color: AppColors.onErrorContainer.withValues(alpha: 0.85),
+              fontSize: 12,
+              fontStyle: FontStyle.italic,
+            ),
+          ),
+        ],
       ),
     );
   }

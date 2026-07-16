@@ -42,7 +42,7 @@ class _LoginScreenState extends State<LoginScreen>
       });
 
       // Simulate network request
-      Future.delayed(const Duration(seconds: 1500), () {
+      Future.delayed(const Duration(milliseconds: 1500), () {
         if (mounted) {
           setState(() {
             _isLoading = false;

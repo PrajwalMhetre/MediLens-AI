@@ -12,48 +12,89 @@ class SplashScreen extends StatefulWidget {
 }
 
 class _SplashScreenState extends State<SplashScreen>
-    with SingleTickerProviderStateMixin {
-  late AnimationController _controller;
+    with TickerProviderStateMixin {
+  late AnimationController _entryController;
   late Animation<double> _scaleAnimation;
   late Animation<double> _opacityAnimation;
+
+  late AnimationController _pulseController;
+  late Animation<double> _pulseAnimation;
+
+  late AnimationController _taglineController;
+  late Animation<double> _taglineOpacity;
+  late Animation<Offset> _taglineSlide;
 
   @override
   void initState() {
     super.initState();
-    _controller = AnimationController(
+
+    // Entry animation (logo scale + fade)
+    _entryController = AnimationController(
       vsync: this,
       duration: const Duration(milliseconds: 1500),
     );
+    _scaleAnimation = Tween<double>(begin: 0.85, end: 1.0).animate(
+      CurvedAnimation(parent: _entryController, curve: Curves.easeOutBack),
+    );
+    _opacityAnimation = Tween<double>(begin: 0.0, end: 1.0).animate(
+      CurvedAnimation(parent: _entryController, curve: Curves.easeIn),
+    );
 
-    _scaleAnimation = Tween<double>(
-      begin: 0.85,
-      end: 1.0,
-    ).animate(CurvedAnimation(parent: _controller, curve: Curves.easeOutBack));
+    // Pulsing glow on logo circle
+    _pulseController = AnimationController(
+      vsync: this,
+      duration: const Duration(milliseconds: 2000),
+    );
+    _pulseAnimation = Tween<double>(begin: 0.08, end: 0.22).animate(
+      CurvedAnimation(parent: _pulseController, curve: Curves.easeInOut),
+    );
+    _pulseController.repeat(reverse: true);
 
-    _opacityAnimation = Tween<double>(
-      begin: 0.0,
-      end: 1.0,
-    ).animate(CurvedAnimation(parent: _controller, curve: Curves.easeIn));
+    // Staggered tagline entrance
+    _taglineController = AnimationController(
+      vsync: this,
+      duration: const Duration(milliseconds: 600),
+    );
+    _taglineOpacity = Tween<double>(begin: 0.0, end: 1.0).animate(
+      CurvedAnimation(parent: _taglineController, curve: Curves.easeOut),
+    );
+    _taglineSlide = Tween<Offset>(
+      begin: const Offset(0, 0.3),
+      end: Offset.zero,
+    ).animate(
+      CurvedAnimation(parent: _taglineController, curve: Curves.easeOutCubic),
+    );
 
-    _controller.forward();
+    _entryController.forward();
 
+    // Stagger tagline after logo entry
+    Future.delayed(const Duration(milliseconds: 900), () {
+      if (mounted) _taglineController.forward();
+    });
+
+    // Navigate after splash
     Timer(const Duration(milliseconds: 3000), () {
-      Navigator.of(context).pushReplacement(
-        PageRouteBuilder(
-          pageBuilder: (context, animation, secondaryAnimation) =>
-              const OnboardingScreen(),
-          transitionsBuilder: (context, animation, secondaryAnimation, child) {
-            return FadeTransition(opacity: animation, child: child);
-          },
-          transitionDuration: const Duration(milliseconds: 600),
-        ),
-      );
+      if (mounted) {
+        Navigator.of(context).pushReplacement(
+          PageRouteBuilder(
+            pageBuilder: (context, animation, secondaryAnimation) =>
+                const OnboardingScreen(),
+            transitionsBuilder:
+                (context, animation, secondaryAnimation, child) {
+              return FadeTransition(opacity: animation, child: child);
+            },
+            transitionDuration: const Duration(milliseconds: 600),
+          ),
+        );
+      }
     });
   }
 
   @override
   void dispose() {
-    _controller.dispose();
+    _entryController.dispose();
+    _pulseController.dispose();
+    _taglineController.dispose();
     super.dispose();
   }
 
@@ -101,10 +142,11 @@ class _SplashScreenState extends State<SplashScreen>
                   ),
                 ),
               ),
+
               // Center Logo and text
               Center(
                 child: AnimatedBuilder(
-                  animation: _controller,
+                  animation: _entryController,
                   builder: (context, child) {
                     return Opacity(
                       opacity: _opacityAnimation.value,
@@ -117,33 +159,39 @@ class _SplashScreenState extends State<SplashScreen>
                   child: Column(
                     mainAxisAlignment: MainAxisAlignment.center,
                     children: [
-                      // Logo icon representation
-                      Container(
-                        width: 96,
-                        height: 96,
-                        decoration: BoxDecoration(
-                          color: AppColors.surfaceContainerLowest,
-                          shape: BoxShape.circle,
-                          boxShadow: [
-                            BoxShadow(
-                              color: AppColors.primary.withValues(alpha: 0.12),
-                              blurRadius: 24,
-                              spreadRadius: 4,
+                      // Logo icon with pulsing glow
+                      AnimatedBuilder(
+                        animation: _pulseAnimation,
+                        builder: (context, child) {
+                          return Container(
+                            width: 96,
+                            height: 96,
+                            decoration: BoxDecoration(
+                              color: AppColors.surfaceContainerLowest,
+                              shape: BoxShape.circle,
+                              boxShadow: [
+                                BoxShadow(
+                                  color: AppColors.primary.withValues(
+                                      alpha: _pulseAnimation.value),
+                                  blurRadius: 24 + (_pulseAnimation.value * 40),
+                                  spreadRadius:
+                                      4 + (_pulseAnimation.value * 8),
+                                ),
+                              ],
                             ),
-                          ],
-                        ),
+                            child: child,
+                          );
+                        },
                         child: Center(
                           child: Stack(
                             alignment: Alignment.center,
                             children: [
-                              // Scanning lens look
                               Container(
                                 width: 72,
                                 height: 72,
                                 decoration: BoxDecoration(
-                                  color: AppColors.primary.withValues(
-                                    alpha: 0.08,
-                                  ),
+                                  color: AppColors.primary
+                                      .withValues(alpha: 0.08),
                                   shape: BoxShape.circle,
                                 ),
                               ),
@@ -152,7 +200,6 @@ class _SplashScreenState extends State<SplashScreen>
                                 color: AppColors.primary,
                                 size: 40,
                               ),
-                              // Medical indicator cross inside search scope
                               Positioned(
                                 top: 12,
                                 right: 12,
@@ -175,6 +222,7 @@ class _SplashScreenState extends State<SplashScreen>
                         ),
                       ),
                       const SizedBox(height: 24),
+
                       // Title Text
                       Text(
                         "MediLens AI",
@@ -185,18 +233,26 @@ class _SplashScreenState extends State<SplashScreen>
                         ),
                       ),
                       const SizedBox(height: 8),
-                      // Tagline Text
-                      Text(
-                        "Your Intelligent Digital Apothecary",
-                        style: AppStyles.bodyLg.copyWith(
-                          color: AppColors.onSurfaceVariant,
-                          fontWeight: FontWeight.w500,
+
+                      // Tagline with staggered entrance
+                      SlideTransition(
+                        position: _taglineSlide,
+                        child: FadeTransition(
+                          opacity: _taglineOpacity,
+                          child: Text(
+                            "Your Intelligent Digital Apothecary",
+                            style: AppStyles.bodyLg.copyWith(
+                              color: AppColors.onSurfaceVariant,
+                              fontWeight: FontWeight.w500,
+                            ),
+                          ),
                         ),
                       ),
                     ],
                   ),
                 ),
               ),
+
               // Bottom Progress/Branding
               Align(
                 alignment: Alignment.bottomCenter,
@@ -209,9 +265,8 @@ class _SplashScreenState extends State<SplashScreen>
                         width: 48,
                         child: LinearProgressIndicator(
                           color: AppColors.primaryContainer,
-                          backgroundColor: AppColors.outlineVariant.withValues(
-                            alpha: 0.3,
-                          ),
+                          backgroundColor: AppColors.outlineVariant
+                              .withValues(alpha: 0.3),
                           borderRadius: BorderRadius.circular(4),
                         ),
                       ),
@@ -219,9 +274,8 @@ class _SplashScreenState extends State<SplashScreen>
                       Text(
                         "CLINICAL PRECISION • AI INSIGHT",
                         style: AppStyles.labelSm.copyWith(
-                          color: AppColors.onSurfaceVariant.withValues(
-                            alpha: 0.6,
-                          ),
+                          color: AppColors.onSurfaceVariant
+                              .withValues(alpha: 0.6),
                           fontSize: 10,
                           letterSpacing: 1.5,
                         ),

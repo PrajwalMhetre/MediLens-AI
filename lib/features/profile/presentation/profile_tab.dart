@@ -3,6 +3,7 @@ import 'package:medilens_ai/app/state/app_state_provider.dart';
 import 'package:medilens_ai/core/constants/app_assets.dart';
 import 'package:medilens_ai/core/theme/colors.dart';
 import 'package:medilens_ai/core/theme/styles.dart';
+import 'package:medilens_ai/features/auth/presentation/login_screen.dart';
 import 'package:provider/provider.dart';
 
 class ProfileTab extends StatefulWidget {
@@ -12,10 +13,86 @@ class ProfileTab extends StatefulWidget {
   State<ProfileTab> createState() => _ProfileTabState();
 }
 
-class _ProfileTabState extends State<ProfileTab> {
+class _ProfileTabState extends State<ProfileTab>
+    with SingleTickerProviderStateMixin {
   bool _notificationToggled = true;
   bool _biometricToggled = false;
   bool _darkModeToggled = false;
+
+  late AnimationController _avatarController;
+  late Animation<double> _avatarScale;
+
+  @override
+  void initState() {
+    super.initState();
+    _avatarController = AnimationController(
+      vsync: this,
+      duration: const Duration(milliseconds: 600),
+    );
+    _avatarScale = Tween<double>(begin: 0.0, end: 1.0).animate(
+      CurvedAnimation(parent: _avatarController, curve: Curves.easeOutBack),
+    );
+    _avatarController.forward();
+  }
+
+  @override
+  void dispose() {
+    _avatarController.dispose();
+    super.dispose();
+  }
+
+  void _handleLogout() {
+    showDialog(
+      context: context,
+      builder: (context) => AlertDialog(
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(AppStyles.radiusLg),
+        ),
+        title: Text(
+          "Log Out",
+          style: AppStyles.titleMd.copyWith(
+            fontWeight: FontWeight.w700,
+            color: AppColors.onSurface,
+          ),
+        ),
+        content: Text(
+          "Are you sure you want to log out?",
+          style: AppStyles.bodyMd.copyWith(
+            color: AppColors.onSurfaceVariant,
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: Text(
+              "Cancel",
+              style: AppStyles.bodyMd.copyWith(
+                color: AppColors.onSurfaceVariant,
+                fontWeight: FontWeight.w600,
+              ),
+            ),
+          ),
+          ElevatedButton(
+            onPressed: () {
+              Navigator.of(context).pop(); // Close dialog
+              Navigator.of(context).pushAndRemoveUntil(
+                MaterialPageRoute(builder: (_) => const LoginScreen()),
+                (route) => false,
+              );
+            },
+            style: ElevatedButton.styleFrom(
+              backgroundColor: AppColors.error,
+              foregroundColor: AppColors.onError,
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(AppStyles.radiusDefault),
+              ),
+            ),
+            child: const Text("Log Out"),
+          ),
+        ],
+      ),
+    );
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -44,21 +121,24 @@ class _ProfileTabState extends State<ProfileTab> {
               ),
               const SizedBox(height: 24),
 
-              // Avatar & Basic Info Card
+              // Avatar & Basic Info Card with scale-in animation
               Center(
                 child: Column(
                   children: [
-                    Container(
-                      width: 100,
-                      height: 100,
-                      decoration: BoxDecoration(
-                        shape: BoxShape.circle,
-                        border: Border.all(color: Colors.white, width: 4),
-                        image: const DecorationImage(
-                          image: AssetImage(AppAssets.homeDashboard),
-                          fit: BoxFit.cover,
+                    ScaleTransition(
+                      scale: _avatarScale,
+                      child: Container(
+                        width: 100,
+                        height: 100,
+                        decoration: BoxDecoration(
+                          shape: BoxShape.circle,
+                          border: Border.all(color: Colors.white, width: 4),
+                          image: const DecorationImage(
+                            image: AssetImage(AppAssets.homeDashboard),
+                            fit: BoxFit.cover,
+                          ),
+                          boxShadow: AppStyles.level2Shadow,
                         ),
-                        boxShadow: AppStyles.level2Shadow,
                       ),
                     ),
                     const SizedBox(height: 16),
@@ -196,7 +276,8 @@ class _ProfileTabState extends State<ProfileTab> {
                       Icons.insights_rounded,
                       () {},
                     ),
-                    const Divider(height: 1, indent: 56, color: Colors.black12),
+                    const Divider(
+                        height: 1, indent: 56, color: Colors.black12),
                     _buildReportTile(
                       "Export Medical PDF",
                       "Download a detailed clinical summary",
@@ -243,14 +324,16 @@ class _ProfileTabState extends State<ProfileTab> {
                       _notificationToggled,
                       (val) => setState(() => _notificationToggled = val),
                     ),
-                    const Divider(height: 1, indent: 56, color: Colors.black12),
+                    const Divider(
+                        height: 1, indent: 56, color: Colors.black12),
                     _buildSwitchTile(
                       "Biometric (Face ID) Lock",
                       Icons.fingerprint_rounded,
                       _biometricToggled,
                       (val) => setState(() => _biometricToggled = val),
                     ),
-                    const Divider(height: 1, indent: 56, color: Colors.black12),
+                    const Divider(
+                        height: 1, indent: 56, color: Colors.black12),
                     _buildSwitchTile(
                       "Dark Mode Theme",
                       Icons.dark_mode_outlined,
@@ -258,6 +341,35 @@ class _ProfileTabState extends State<ProfileTab> {
                       (val) => setState(() => _darkModeToggled = val),
                     ),
                   ],
+                ),
+              ),
+              const SizedBox(height: 28),
+
+              // Log Out Button
+              SizedBox(
+                width: double.infinity,
+                height: 48,
+                child: OutlinedButton.icon(
+                  onPressed: _handleLogout,
+                  icon: const Icon(Icons.logout_rounded, size: 20),
+                  label: Text(
+                    "Log Out",
+                    style: AppStyles.titleMd.copyWith(
+                      fontSize: 16,
+                      fontWeight: FontWeight.w600,
+                      color: AppColors.error,
+                    ),
+                  ),
+                  style: OutlinedButton.styleFrom(
+                    foregroundColor: AppColors.error,
+                    side: BorderSide(
+                      color: AppColors.error.withValues(alpha: 0.3),
+                    ),
+                    shape: RoundedRectangleBorder(
+                      borderRadius:
+                          BorderRadius.circular(AppStyles.radiusDefault),
+                    ),
+                  ),
                 ),
               ),
 
@@ -305,7 +417,8 @@ class _ProfileTabState extends State<ProfileTab> {
                 Text(
                   label,
                   style: AppStyles.labelSm.copyWith(
-                    color: AppColors.onSurfaceVariant.withValues(alpha: 0.6),
+                    color:
+                        AppColors.onSurfaceVariant.withValues(alpha: 0.6),
                     fontSize: 10,
                   ),
                 ),
