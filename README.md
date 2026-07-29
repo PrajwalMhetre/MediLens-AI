@@ -330,3 +330,37 @@ This project is released under the MIT License. See [LICENSE](LICENSE).
 ## Recruiter-Friendly Summary
 
 MediLens AI demonstrates the ability to take a product idea from prototype to a maintainable full-stack application. It highlights frontend architecture, polished mobile UI, backend API design, state management, environment-based configuration, Docker packaging, and practical documentation. The project is scoped as a healthcare assistant demo while keeping privacy and clinical safety boundaries clear.
+
+## Full-Stack Build, DBMS, Deployment, And CI/CD
+
+The repository now includes a complete runnable stack for frontend, backend, DBMS, deployment packaging, and CI/CD validation.
+
+### Full-stack Docker deployment
+
+```sh
+cp .env.example .env
+docker compose up --build
+```
+
+This starts:
+
+| Service | URL / Port | Purpose |
+| --- | --- | --- |
+| `frontend` | http://localhost:8080 | Flutter Web served by Nginx |
+| `backend` | http://localhost:8000 | FastAPI REST API |
+| `db` | localhost:5432 | PostgreSQL 16 DBMS |
+
+### Health checks
+
+- Backend liveness: `GET http://localhost:8000/health`
+- API documentation: `GET http://localhost:8000/docs`
+
+### CI/CD
+
+GitHub Actions workflow `.github/workflows/ci-cd.yml` validates the application on pull requests and pushes:
+
+- Backend dependency installation, Python compilation, PostgreSQL-backed API startup, and `/health` smoke test.
+- Flutter dependency installation, static analysis, widget tests, and Flutter Web release build.
+- Docker image builds for backend and frontend deployment artifacts.
+
+See `DEPLOYMENT.md` for production deployment steps and environment variable guidance.

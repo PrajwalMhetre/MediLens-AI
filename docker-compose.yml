@@ -1,15 +1,37 @@
 services:
+  db:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-medilens}
+      POSTGRES_USER: ${POSTGRES_USER:-medilens}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-medilens}
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-medilens} -d ${POSTGRES_DB:-medilens}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+
   backend:
     build:
       context: ./backend
     environment:
       API_TITLE: ${API_TITLE:-MediLens AI Backend}
-      DATABASE_URL: ${DATABASE_URL:-sqlite:///./data/medilens.db}
+      DATABASE_URL: ${DATABASE_URL:-postgresql+psycopg://medilens:medilens@db:5432/medilens}
       CORS_ORIGINS: ${CORS_ORIGINS:-http://localhost:8080,http://localhost:8000}
+    depends_on:
+      db:
+        condition: service_healthy
     ports:
       - "8000:8000"
-    volumes:
-      - backend-data:/app/data
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/health').read()"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
 
   frontend:
     build:
@@ -17,9 +39,10 @@ services:
       args:
         API_BASE_URL: ${API_BASE_URL:-http://localhost:8000/api}
     depends_on:
-      - backend
+      backend:
+        condition: service_healthy
     ports:
       - "8080:80"
 
 volumes:
-  backend-data:
+  postgres-data:

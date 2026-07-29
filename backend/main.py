@@ -129,6 +129,10 @@ def map_medicine(m):
     }
 
 # Endpoints
+@app.get("/health")
+def health_check():
+    return {"status": "ok", "service": "medilens-backend"}
+
 @app.get("/api/user", response_model=schemas.UserResponse)
 def get_user(db: Session = Depends(get_db)):
     u = db.query(models.User).filter_by(email="alex.rivera@medilens.com").first()
