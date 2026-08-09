@@ -1,0 +1,8 @@
+[project]
+name = "medilens-backend"
+version = "0.1.0"
+description = "FastAPI backend for MediLens-AI (scaffold)"
+requires-python = ">=3.12"
+
+[project.scripts]
+start = "uvicorn app.main:app --host 0.0.0.0 --port 8000"
