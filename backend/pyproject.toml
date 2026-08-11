@@ -5,4 +5,5 @@ description = "FastAPI backend for MediLens-AI (scaffold)"
 requires-python = ">=3.12"
 
 [project.scripts]
-start = "uvicorn app.main:app --host 0.0.0.0 --port 8000"
+# entry point must be an importable callable; provide a small wrapper that runs uvicorn
+start = "app.run:main"
