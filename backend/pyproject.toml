@@ -1,0 +1,9 @@
+[project]
+name = "medilens-backend"
+version = "0.1.0"
+description = "FastAPI backend for MediLens-AI (scaffold)"
+requires-python = ">=3.12"
+
+[project.scripts]
+# entry point must be an importable callable; provide a small wrapper that runs uvicorn
+start = "app.run:main"

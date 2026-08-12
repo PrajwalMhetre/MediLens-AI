@@ -1,0 +1,33 @@
+version: "3.9"
+services:
+  db:
+    image: postgres:15
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: medilens
+      POSTGRES_PASSWORD: medilens
+      POSTGRES_DB: medilens
+    volumes:
+      - db_data:/var/lib/postgresql/data
+    ports:
+      - "5432:5432"
+
+  redis:
+    image: redis:7
+    ports:
+      - "6379:6379"
+    restart: unless-stopped
+
+  backend:
+    build: ./backend
+    depends_on:
+      - db
+      - redis
+    environment:
+      DATABASE_URL: postgresql+psycopg://medilens:medilens@db:5432/medilens
+      REDIS_URL: redis://redis:6379/0
+    ports:
+      - "8000:8000"
+
+volumes:
+  db_data:
