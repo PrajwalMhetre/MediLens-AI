@@ -9,7 +9,7 @@ export async function GET(request: NextRequest) {
     }
 
     verifyToken(token);
-    const user = getUserProfileFromToken(token);
+    const user = await getUserProfileFromToken(token);
 
     if (!user) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });

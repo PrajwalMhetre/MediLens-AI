@@ -1,5 +1,7 @@
 import bcrypt from 'bcryptjs';
 import jwt, { type JwtPayload } from 'jsonwebtoken';
+import { promises as fs } from 'fs';
+import path from 'path';
 import { NextResponse } from 'next/server';
 
 export type AppUser = {
@@ -10,14 +12,40 @@ export type AppUser = {
   passwordHash: string;
 };
 
+export type SafeUser = Omit<AppUser, 'passwordHash'>;
+
 export const AUTH_COOKIE_NAME = 'medilens_session';
-const JWT_SECRET = process.env.JWT_SECRET ?? 'medilens-dev-secret-key-change-me';
 const JWT_EXPIRES_IN = '7d';
+const USERS_FILE_PATH = path.join(process.cwd(), '.data', 'users.json');
 
-const users = new Map<string, AppUser>();
+function getJwtSecret() {
+  const secret = process.env.JWT_SECRET ?? (process.env.NODE_ENV === 'development' ? 'medilens-dev-secret-key-change-me' : undefined);
 
-export function ensureSeedUser() {
+  if (!secret) {
+    throw new Error('JWT_SECRET must be configured in production.');
+  }
+
+  return secret;
+}
+
+async function loadUsers(): Promise<Map<string, AppUser>> {
+  try {
+    const fileContents = await fs.readFile(USERS_FILE_PATH, 'utf8');
+    const parsed = JSON.parse(fileContents) as Record<string, AppUser>;
+    return new Map(Object.entries(parsed));
+  } catch {
+    return new Map();
+  }
+}
+
+async function saveUsers(users: Map<string, AppUser>) {
+  await fs.mkdir(path.dirname(USERS_FILE_PATH), { recursive: true });
+  await fs.writeFile(USERS_FILE_PATH, JSON.stringify(Object.fromEntries(users), null, 2), 'utf8');
+}
+
+export async function ensureSeedUser() {
   const demoEmail = 'dr.elena@medilens.ai';
+  const users = await loadUsers();
 
   if (!users.has(demoEmail)) {
     users.set(demoEmail, {
@@ -27,21 +55,25 @@ export function ensureSeedUser() {
       role: 'Radiologist',
       passwordHash: bcrypt.hashSync('DemoRadiologist2026!', 10),
     });
+
+    await saveUsers(users);
   }
 }
 
-export function sanitizeUser(user: AppUser) {
-  const { passwordHash: _passwordHash, ...safeUser } = user;
-  return safeUser as Omit<AppUser, 'passwordHash'>;
+export function sanitizeUser(user: AppUser): SafeUser {
+  return Object.fromEntries(
+    Object.entries(user).filter(([key]) => key !== 'passwordHash')
+  ) as SafeUser;
 }
 
-export function createUser(input: {
+export async function createUser(input: {
   name: string;
   email: string;
   password: string;
   role: string;
 }) {
-  ensureSeedUser();
+  await ensureSeedUser();
+  const users = await loadUsers();
 
   const normalizedEmail = input.email.trim().toLowerCase();
   if (!normalizedEmail || !input.name.trim() || !input.password.trim()) {
@@ -65,6 +97,7 @@ export function createUser(input: {
   };
 
   users.set(normalizedEmail, user);
+  await saveUsers(users);
   const token = signToken(user);
 
   return {
@@ -73,8 +106,9 @@ export function createUser(input: {
   };
 }
 
-export function authenticateUser(email: string, password: string) {
-  ensureSeedUser();
+export async function authenticateUser(email: string, password: string) {
+  await ensureSeedUser();
+  const users = await loadUsers();
 
   const normalizedEmail = email.trim().toLowerCase();
   const user = users.get(normalizedEmail);
@@ -94,7 +128,7 @@ export function authenticateUser(email: string, password: string) {
   };
 }
 
-export function getUserProfileFromToken(token: string) {
+export async function getUserProfileFromToken(token: string) {
   try {
     const payload = verifyToken(token) as JwtPayload & {
       sub: string;
@@ -103,6 +137,7 @@ export function getUserProfileFromToken(token: string) {
       role: string;
     };
 
+    const users = await loadUsers();
     const user = users.get(payload.email?.toLowerCase() ?? '');
     if (!user || user.id !== payload.sub) {
       return null;
@@ -122,13 +157,13 @@ export function signToken(user: Pick<AppUser, 'id' | 'name' | 'email' | 'role'>)
       name: user.name,
       role: user.role,
     },
-    JWT_SECRET,
+    getJwtSecret(),
     { expiresIn: JWT_EXPIRES_IN }
   );
 }
 
 export function verifyToken(token: string) {
-  return jwt.verify(token, JWT_SECRET);
+  return jwt.verify(token, getJwtSecret());
 }
 
 export function setAuthCookie(response: NextResponse, token: string) {
