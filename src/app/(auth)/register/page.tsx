@@ -5,7 +5,7 @@ import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { Button } from '@/components/ui/button';
 import { Card, CardHeader, CardTitle, CardDescription, CardContent, CardFooter } from '@/components/ui/card';
-import { Activity, Eye, EyeOff, Lock, Mail, User, Shield, ArrowRight, Check } from 'lucide-react';
+import { Activity, Eye, EyeOff, Lock, Mail, User, ArrowRight } from 'lucide-react';
 import { toast } from 'sonner';
 
 export default function RegisterPage() {
@@ -30,18 +30,42 @@ export default function RegisterPage() {
 
   const strength = getPasswordStrength();
 
-  const handleRegister = (e: React.FormEvent) => {
+  const handleRegister = async (e: React.FormEvent) => {
     e.preventDefault();
     if (password !== confirmPassword) {
       toast.error('Passwords do not match.');
       return;
     }
+
     setLoading(true);
-    setTimeout(() => {
+
+    try {
+      const response = await fetch('/api/auth/register', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          name,
+          email,
+          password,
+          role,
+        }),
+      });
+
+      const data = await response.json();
+
+      if (!response.ok) {
+        throw new Error(data?.error || 'Registration failed');
+      }
+
+      toast.success('Registration successful! Welcome to MediLens AI.');
+      router.push('/dashboard');
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : 'Unable to create account.');
+    } finally {
       setLoading(false);
-      toast.success('Registration successful! Verification email sent.');
-      router.push('/verify-email');
-    }, 600);
+    }
   };
 
   return (
