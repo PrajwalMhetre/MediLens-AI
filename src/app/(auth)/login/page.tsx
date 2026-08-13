@@ -5,7 +5,7 @@ import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { Button } from '@/components/ui/button';
 import { Card, CardHeader, CardTitle, CardDescription, CardContent, CardFooter } from '@/components/ui/card';
-import { Activity, Eye, EyeOff, Lock, Mail, ArrowRight, Sparkles, CheckCircle2 } from 'lucide-react';
+import { Activity, Eye, EyeOff, Lock, Mail, ArrowRight, Sparkles } from 'lucide-react';
 import { toast } from 'sonner';
 
 export default function LoginPage() {
@@ -15,14 +15,32 @@ export default function LoginPage() {
   const [showPassword, setShowPassword] = useState(false);
   const [loading, setLoading] = useState(false);
 
-  const handleLogin = (e: React.FormEvent) => {
+  const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault();
     setLoading(true);
-    setTimeout(() => {
-      setLoading(false);
+
+    try {
+      const response = await fetch('/api/auth/login', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ email, password }),
+      });
+
+      const data = await response.json();
+
+      if (!response.ok) {
+        throw new Error(data?.error || 'Login failed');
+      }
+
       toast.success('Successfully authenticated! Welcome to MediLens AI.');
       router.push('/dashboard');
-    }, 600);
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : 'Unable to sign in.');
+    } finally {
+      setLoading(false);
+    }
   };
 
   const fillDemoCredentials = () => {
@@ -125,7 +143,7 @@ export default function LoginPage() {
             </Button>
 
             <p className="text-xs text-center text-slate-400">
-              Don't have an account?{' '}
+              Don&apos;t have an account?{' '}
               <Link href="/register" className="text-cyan-400 font-semibold hover:underline">
                 Create Account
               </Link>

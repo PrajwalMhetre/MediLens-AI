@@ -116,7 +116,18 @@ export function useScanDrug() {
 export function useUserProfile() {
   return useQuery({
     queryKey: ['userProfile'],
-    queryFn: () => apiService.getUserProfile(),
+    queryFn: async () => {
+      const response = await fetch('/api/auth/me', {
+        credentials: 'same-origin',
+      });
+
+      if (!response.ok) {
+        throw new Error('Unauthorized');
+      }
+
+      const data = await response.json();
+      return data.user;
+    },
   });
 }
 
