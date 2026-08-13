@@ -31,9 +31,8 @@ export function ensureSeedUser() {
 }
 
 export function sanitizeUser(user: AppUser) {
-  const safeUser = { ...user };
-  delete safeUser.passwordHash;
-  return safeUser;
+  const { passwordHash: _passwordHash, ...safeUser } = user;
+  return safeUser as Omit<AppUser, 'passwordHash'>;
 }
 
 export function createUser(input: {
