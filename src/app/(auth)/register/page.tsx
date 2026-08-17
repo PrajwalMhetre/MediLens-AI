@@ -5,11 +5,13 @@ import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { Button } from '@/components/ui/button';
 import { Card, CardHeader, CardTitle, CardDescription, CardContent, CardFooter } from '@/components/ui/card';
-import { Activity, Eye, EyeOff, Lock, Mail, User, Shield, ArrowRight, Check } from 'lucide-react';
+import { Activity, Eye, EyeOff, Lock, Mail, User, ArrowRight } from 'lucide-react';
 import { toast } from 'sonner';
+import { createClient } from '@/lib/supabase/client';
 
 export default function RegisterPage() {
   const router = useRouter();
+  const supabase = createClient();
   const [name, setName] = useState('');
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
@@ -18,7 +20,6 @@ export default function RegisterPage() {
   const [showPassword, setShowPassword] = useState(false);
   const [loading, setLoading] = useState(false);
 
-  // Compute password strength score (0-4)
   const getPasswordStrength = () => {
     let score = 0;
     if (password.length >= 8) score++;
@@ -30,18 +31,44 @@ export default function RegisterPage() {
 
   const strength = getPasswordStrength();
 
-  const handleRegister = (e: React.FormEvent) => {
+  const handleRegister = async (e: React.FormEvent) => {
     e.preventDefault();
+
     if (password !== confirmPassword) {
       toast.error('Passwords do not match.');
       return;
     }
+
     setLoading(true);
-    setTimeout(() => {
+
+    const { data, error } = await supabase.auth.signUp({
+      email,
+      password,
+      options: {
+        emailRedirectTo: `${window.location.origin}/auth/confirm?next=/dashboard`,
+        data: {
+          full_name: name,
+          role,
+        },
+      },
+    });
+
+    if (error) {
+      toast.error(error.message);
       setLoading(false);
-      toast.success('Registration successful! Verification email sent.');
-      router.push('/verify-email');
-    }, 600);
+      return;
+    }
+
+    if (data.session) {
+      toast.success('Account created successfully.');
+      router.replace('/dashboard');
+      router.refresh();
+    } else {
+      toast.success('Account created. Check your email to verify your account.');
+      router.replace('/verify-email');
+    }
+
+    setLoading(false);
   };
 
   return (
@@ -54,17 +81,13 @@ export default function RegisterPage() {
             <Activity className="h-6 w-6 text-cyan-400" />
           </div>
         </div>
-        <span className="font-bold text-2xl text-white tracking-tight">
-          MediLens <span className="text-cyan-400">AI</span>
-        </span>
+        <span className="font-bold text-2xl text-white tracking-tight">MediLens <span className="text-cyan-400">AI</span></span>
       </Link>
 
       <Card className="w-full max-w-md border-slate-800 bg-slate-900/90 shadow-2xl relative z-10">
         <CardHeader className="text-center space-y-1">
           <CardTitle className="text-xl font-bold text-white">Create Clinical Account</CardTitle>
-          <CardDescription className="text-xs text-slate-400">
-            Join healthcare professionals utilizing AI imaging intelligence
-          </CardDescription>
+          <CardDescription className="text-xs text-slate-400">Create a real Supabase account for the MediLens AI platform</CardDescription>
         </CardHeader>
 
         <form onSubmit={handleRegister}>
@@ -73,24 +96,13 @@ export default function RegisterPage() {
               <label className="text-xs font-medium text-slate-300">Full Name & Title</label>
               <div className="relative">
                 <User className="h-4 w-4 text-slate-500 absolute left-3 top-3" />
-                <input
-                  type="text"
-                  required
-                  value={name}
-                  onChange={(e) => setName(e.target.value)}
-                  placeholder="Dr. Alexander Vance"
-                  className="w-full pl-9 pr-3 py-2 text-sm rounded-lg bg-slate-950 border border-slate-800 text-white placeholder:text-slate-600 focus:outline-none focus:border-cyan-500"
-                />
+                <input type="text" required value={name} onChange={(e) => setName(e.target.value)} placeholder="Dr. Alexander Vance" className="w-full pl-9 pr-3 py-2 text-sm rounded-lg bg-slate-950 border border-slate-800 text-white placeholder:text-slate-600 focus:outline-none focus:border-cyan-500" />
               </div>
             </div>
 
             <div className="space-y-1">
               <label className="text-xs font-medium text-slate-300">Professional Role</label>
-              <select
-                value={role}
-                onChange={(e) => setRole(e.target.value)}
-                className="w-full px-3 py-2 text-sm rounded-lg bg-slate-950 border border-slate-800 text-white focus:outline-none focus:border-cyan-500"
-              >
+              <select value={role} onChange={(e) => setRole(e.target.value)} className="w-full px-3 py-2 text-sm rounded-lg bg-slate-950 border border-slate-800 text-white focus:outline-none focus:border-cyan-500">
                 <option value="Radiologist">Radiologist</option>
                 <option value="Physician">Physician / Clinician</option>
                 <option value="Medical Student">Medical Student / Resident</option>
@@ -102,14 +114,7 @@ export default function RegisterPage() {
               <label className="text-xs font-medium text-slate-300">Institutional Email</label>
               <div className="relative">
                 <Mail className="h-4 w-4 text-slate-500 absolute left-3 top-3" />
-                <input
-                  type="email"
-                  required
-                  value={email}
-                  onChange={(e) => setEmail(e.target.value)}
-                  placeholder="a.vance@medicalcenter.org"
-                  className="w-full pl-9 pr-3 py-2 text-sm rounded-lg bg-slate-950 border border-slate-800 text-white placeholder:text-slate-600 focus:outline-none focus:border-cyan-500"
-                />
+                <input type="email" required value={email} onChange={(e) => setEmail(e.target.value)} placeholder="doctor@hospital.org" className="w-full pl-9 pr-3 py-2 text-sm rounded-lg bg-slate-950 border border-slate-800 text-white placeholder:text-slate-600 focus:outline-none focus:border-cyan-500" />
               </div>
             </div>
 
@@ -117,48 +122,19 @@ export default function RegisterPage() {
               <label className="text-xs font-medium text-slate-300">Password</label>
               <div className="relative">
                 <Lock className="h-4 w-4 text-slate-500 absolute left-3 top-3" />
-                <input
-                  type={showPassword ? 'text' : 'password'}
-                  required
-                  value={password}
-                  onChange={(e) => setPassword(e.target.value)}
-                  placeholder="At least 8 characters"
-                  className="w-full pl-9 pr-10 py-2 text-sm rounded-lg bg-slate-950 border border-slate-800 text-white placeholder:text-slate-600 focus:outline-none focus:border-cyan-500"
-                />
-                <button
-                  type="button"
-                  onClick={() => setShowPassword(!showPassword)}
-                  className="absolute right-3 top-3 text-slate-500 hover:text-slate-300"
-                >
+                <input type={showPassword ? 'text' : 'password'} required minLength={8} value={password} onChange={(e) => setPassword(e.target.value)} placeholder="At least 8 characters" className="w-full pl-9 pr-10 py-2 text-sm rounded-lg bg-slate-950 border border-slate-800 text-white placeholder:text-slate-600 focus:outline-none focus:border-cyan-500" />
+                <button type="button" onClick={() => setShowPassword(!showPassword)} className="absolute right-3 top-3 text-slate-500 hover:text-slate-300">
                   {showPassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
                 </button>
               </div>
-
-              {/* Strength Meter Bar */}
               {password && (
                 <div className="space-y-1 pt-1">
                   <div className="flex gap-1 h-1.5 w-full">
                     {[1, 2, 3, 4].map((step) => (
-                      <div
-                        key={step}
-                        className={`h-full flex-1 rounded-full transition-all ${
-                          strength >= step
-                            ? strength === 4
-                              ? 'bg-emerald-400'
-                              : strength >= 2
-                              ? 'bg-amber-400'
-                              : 'bg-rose-500'
-                            : 'bg-slate-800'
-                        }`}
-                      />
+                      <div key={step} className={`h-full flex-1 rounded-full transition-all ${strength >= step ? (strength === 4 ? 'bg-emerald-400' : strength >= 2 ? 'bg-amber-400' : 'bg-rose-500') : 'bg-slate-800'}`} />
                     ))}
                   </div>
-                  <p className="text-[10px] text-slate-400">
-                    Password strength:{' '}
-                    <span className="font-semibold text-slate-200">
-                      {strength === 4 ? 'Strong' : strength >= 2 ? 'Moderate' : 'Weak'}
-                    </span>
-                  </p>
+                  <p className="text-[10px] text-slate-400">Password strength: <span className="font-semibold text-slate-200">{strength === 4 ? 'Strong' : strength >= 2 ? 'Moderate' : 'Weak'}</span></p>
                 </div>
               )}
             </div>
@@ -167,22 +143,13 @@ export default function RegisterPage() {
               <label className="text-xs font-medium text-slate-300">Confirm Password</label>
               <div className="relative">
                 <Lock className="h-4 w-4 text-slate-500 absolute left-3 top-3" />
-                <input
-                  type="password"
-                  required
-                  value={confirmPassword}
-                  onChange={(e) => setConfirmPassword(e.target.value)}
-                  placeholder="Repeat password"
-                  className="w-full pl-9 pr-3 py-2 text-sm rounded-lg bg-slate-950 border border-slate-800 text-white placeholder:text-slate-600 focus:outline-none focus:border-cyan-500"
-                />
+                <input type="password" required value={confirmPassword} onChange={(e) => setConfirmPassword(e.target.value)} placeholder="Repeat password" className="w-full pl-9 pr-3 py-2 text-sm rounded-lg bg-slate-950 border border-slate-800 text-white placeholder:text-slate-600 focus:outline-none focus:border-cyan-500" />
               </div>
             </div>
 
             <div className="flex items-start gap-2 pt-1">
               <input type="checkbox" id="terms" required className="mt-0.5 rounded bg-slate-950 border-slate-800 text-cyan-500" />
-              <label htmlFor="terms" className="text-[11px] text-slate-400 leading-tight">
-                I agree to the Terms of Service, Privacy Policy, and clinical usage guidelines.
-              </label>
+              <label htmlFor="terms" className="text-[11px] text-slate-400 leading-tight">I agree to the Terms of Service, Privacy Policy, and clinical usage guidelines.</label>
             </div>
           </CardContent>
 
@@ -191,13 +158,7 @@ export default function RegisterPage() {
               {loading ? 'Creating Account...' : 'Register Account'}
               <ArrowRight className="h-4 w-4" />
             </Button>
-
-            <p className="text-xs text-center text-slate-400">
-              Already have an account?{' '}
-              <Link href="/login" className="text-cyan-400 font-semibold hover:underline">
-                Sign In
-              </Link>
-            </p>
+            <p className="text-xs text-center text-slate-400">Already have an account? <Link href="/login" className="text-cyan-400 font-semibold hover:underline">Sign In</Link></p>
           </CardFooter>
         </form>
       </Card>
